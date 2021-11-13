@@ -55,6 +55,7 @@ if (require.main === module) {
   const db = init('yamanote.db');
   const media: Table.mediaRow = {
     filename: 'raw.dat',
+    mime: 'image/png',
     content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
     createdTime: Date.now(),
     checksumValue: '',

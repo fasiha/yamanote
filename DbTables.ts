@@ -33,6 +33,7 @@ export interface commentRow {
 export interface mediaRow {
   'id'?: number | null;
   'filename': string;
+  'mime': string;
   'content': any;
   'createdTime': number;
   'checksumValue': string;

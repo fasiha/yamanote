@@ -40,7 +40,8 @@ create table backup (
 );
 create table media (
   id INTEGER PRIMARY KEY,
-  filename text not null, 
+  filename text not null,
+  mime text not null,
   -- TODO: allow same checksum, multiple filenames
   -- TODO: prevent users from seeing other users' media by knowing the id/checksum
   content blob not null,
