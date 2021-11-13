@@ -1,10 +1,13 @@
 import sqlite3 from 'better-sqlite3';
 import crypto from 'crypto';
+import * as express from 'express';
 import {readFileSync} from 'fs';
 import * as t from 'io-ts';
+import {Params, path} from 'static-path';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
+
 type BufferMedia = Omit<Table.mediaRow, 'content'>&{content: Buffer};
 
 const SCHEMA_VERSION_REQUIRED = 1;
@@ -18,7 +21,7 @@ function uniqueConstraintError(e: unknown): boolean {
 /**
  * We need someting like `Selected` because sql-ts emits my tables' `id` as
  * `null|number` because I don't have to specify an `INTEGER PRIMARY KEY` when
- * *inserting*, asSQLite will make it for me. However, when *selecting*, the
+ * *inserting*, as SQLite will make it for me. However, when *selecting*, the
  * `INTEGER PRIMARY KEY` field *will* be present.
  *
  * This could also be:
@@ -51,19 +54,47 @@ export function init(fname: string) {
   return db;
 }
 
+type MimeContent = Pick<BufferMedia, 'mime'|'content'>;
+function getFilename(db: Db, filename: string): MimeContent|undefined {
+  return db.prepare(`select mime, content from media where filename=$filename`).get({filename});
+}
+
+function startServer(db: Db, port = 3456) {
+  const filenamePath = path('/media/:filename');
+
+  const app = express.default();
+  app.get('/', (req, res) => { res.send('hello world'); });
+  app.get(filenamePath.pattern, (req, res) => {
+    // NOT TYPECHECKED WITH filenamePath https://github.com/garybernhardt/static-path/issues/5
+    const filename = req.params.filename;
+
+    if (filename && typeof filename === 'string') {
+      const got = getFilename(db, filename);
+      if (got) {
+        res.contentType(got.mime);
+        res.send(got.content);
+        return;
+      }
+    }
+    res.status(404).send('nonesuch');
+  });
+  app.listen(port, () => console.log(`Example app listening at http://localhost:${port}`));
+  return app;
+}
+
 if (require.main === module) {
   const db = init('yamanote.db');
   const media: Table.mediaRow = {
     filename: 'raw.dat',
-    mime: 'image/png',
+    mime: 'text/plain',
     content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
     createdTime: Date.now(),
     checksumValue: '',
     checksumAlgo: ''
   };
   try {
-    db.prepare(`insert into media (filename, content, createdTime, checksumValue, checksumAlgo) 
-  values ($filename, $content, $createdTime, $checksumValue, $checksumAlgo)`)
+    db.prepare(`insert into media (filename, content, mime, createdTime, checksumValue, checksumAlgo) 
+  values ($filename, $content, $mime, $createdTime, $checksumValue, $checksumAlgo)`)
         .run(media);
   } catch (e) {
     if (!uniqueConstraintError(e)) {
@@ -72,4 +103,6 @@ if (require.main === module) {
   }
   const all: BufferMedia[] = db.prepare(`select * from media`).all();
   console.dir(all, {depth: null});
+
+  const app = startServer(db);
 }
