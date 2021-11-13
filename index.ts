@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import * as express from 'express';
 import {readFileSync} from 'fs';
 import * as t from 'io-ts';
-import {Params, path} from 'static-path';
+import {Params, path, Path} from 'static-path';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
@@ -60,14 +60,15 @@ function getFilename(db: Db, filename: string): MimeContent|undefined {
 }
 
 function startServer(db: Db, port = 3456) {
+  // https://github.com/garybernhardt/static-path/issues/5
+  type paramify<T> = T extends Path<infer X>? Params<X>: never;
+
   const filenamePath = path('/media/:filename');
 
   const app = express.default();
   app.get('/', (req, res) => { res.send('hello world'); });
   app.get(filenamePath.pattern, (req, res) => {
-    // NOT TYPECHECKED WITH filenamePath https://github.com/garybernhardt/static-path/issues/5
-    const filename = req.params.filename;
-
+    const filename = (req.params as paramify<typeof filenamePath>).filename;
     if (filename && typeof filename === 'string') {
       const got = getFilename(db, filename);
       if (got) {
