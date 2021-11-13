@@ -1,0 +1,8 @@
+{
+  "client": "sqlite3",
+  "connection": {
+    "filename": "./__empty.db"
+  },
+  "interfaceNameFormat": "${table}Row",
+  "filename": "DbTables"
+}
