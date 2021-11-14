@@ -17,6 +17,7 @@
     "@types/express": "^4.17.13",
     "@types/multer": "^1.4.7",
     "@types/node": "^16.9.2",
+    "form-data": "^4.0.0",
     "knex": "^0.95.11",
     "sql-formatter": "^4.0.2",
     "sqlite3": "^5.0.0",

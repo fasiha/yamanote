@@ -1,11 +1,11 @@
 import sqlite3 from 'better-sqlite3';
 import crypto from 'crypto';
 import * as express from 'express';
+import FormData from 'form-data';
 import {string} from 'fp-ts';
 import {readFileSync} from 'fs';
 import * as t from 'io-ts';
 import multer from 'multer';
-import fetch, {RequestInit} from 'node-fetch';
 import {Params, path, Path} from 'static-path';
 import {promisify} from 'util';
 
@@ -67,7 +67,7 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
   const app = express.default();
   app.use(require('body-parser').json());
   app.get('/', (req, res) => { res.send('hello world'); });
-  app.put(i.mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
+  app.post(i.mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
     const files = req.files;
     if (files && files instanceof Array) {
       const ret: Record<string, number> = {};
@@ -77,7 +77,7 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
 
       for (const file of files) {
         const media: i.BufferMedia =
-            {filename: file.filename, mime: file.mimetype, content: file.buffer, size: file.size, createdTime};
+            {filename: file.originalname, mime: file.mimetype, content: file.buffer, size: file.size, createdTime};
         try {
           const insert = insertStatement.run(media);
           ret[media.filename] = insert.changes >= 1 ? 200 : 500;
@@ -111,6 +111,13 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
 }
 
 if (require.main === module) {
+  function clean(x: i.BufferMedia) {
+    if (x.mime.includes('text/plain')) {
+      x.content = x.content.toString();
+    }
+    return x;
+  }
+
   const db = init('yamanote.db');
   const media: Table.mediaRow = {
     filename: 'raw.dat',
@@ -129,8 +136,32 @@ if (require.main === module) {
     }
   }
   const all: i.BufferMedia[] = db.prepare(`select * from media`).all();
-  console.dir(all, {depth: null});
+  console.dir(all.map(clean), {depth: null});
 
   const port = 3456;
   const app = startServer(db, port);
+
+  {
+    const form = new FormData();
+    const contentType = "text/plain";
+    for (const name of 'a,b,c'.split(',')) {
+      const txt = name === 'a' ? 'fileA contents' : name === 'b' ? 'fileBBB' : 'c';
+      form.append('files', Buffer.from(txt), {filename: `file${name}.txt`, contentType, knownLength: txt.length});
+    }
+    const url = `http://localhost:${port}${i.mediaPath({})}`;
+    form.submit(url, (err, res) => {
+      if (err) {
+        console.error('error!', err)
+      } else {
+        {
+          // via https://stackoverflow.com/a/54025408
+          let reply = '';
+          res.on('data', (chunk) => { reply += chunk; });
+          res.on('end', () => { console.log({reply: JSON.parse(reply)}); });
+        }
+        const all: i.BufferMedia[] = db.prepare(`select * from media`).all();
+        console.dir(all.map(clean), {depth: null});
+      }
+    });
+  }
 }
