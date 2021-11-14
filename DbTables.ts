@@ -36,7 +36,7 @@ export interface mediaRow {
   'mime': string;
   'content': any;
   'createdTime': number;
-  'size': number;
+  'numBytes': number;
 }
 export interface userRow {
   'id'?: number | null;

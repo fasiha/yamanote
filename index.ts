@@ -77,7 +77,7 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
 
       for (const file of files) {
         const media: i.BufferMedia =
-            {filename: file.originalname, mime: file.mimetype, content: file.buffer, size: file.size, createdTime};
+            {filename: file.originalname, mime: file.mimetype, content: file.buffer, numBytes: file.size, createdTime};
         try {
           const insert = insertStatement.run(media);
           ret[media.filename] = insert.changes >= 1 ? 200 : 500;
@@ -124,7 +124,7 @@ if (require.main === module) {
     mime: 'text/plain',
     content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
     createdTime: Date.now(),
-    size: 6,
+    numBytes: 6,
   };
   try {
     db.prepare(

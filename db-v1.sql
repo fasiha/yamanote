@@ -46,7 +46,7 @@ create table media (
   -- TODO: prevent users from seeing other users' media by knowing the id/checksum
   content blob not null,
   createdTime float not null,
-  size integer not null
+  numBytes integer not null
   -- checksumValue text not null,
   -- checksumAlgo text not null
 );
