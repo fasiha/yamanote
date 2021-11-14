@@ -36,8 +36,7 @@ export interface mediaRow {
   'mime': string;
   'content': any;
   'createdTime': number;
-  'checksumValue': string;
-  'checksumAlgo': string;
+  'size': number;
 }
 export interface userRow {
   'id'?: number | null;

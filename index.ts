@@ -1,14 +1,16 @@
 import sqlite3 from 'better-sqlite3';
 import crypto from 'crypto';
 import * as express from 'express';
+import {string} from 'fp-ts';
 import {readFileSync} from 'fs';
 import * as t from 'io-ts';
+import multer from 'multer';
+import fetch, {RequestInit} from 'node-fetch';
 import {Params, path, Path} from 'static-path';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
-
-type BufferMedia = Omit<Table.mediaRow, 'content'>&{content: Buffer};
+import * as i from './pathsInterfaces';
 
 const SCHEMA_VERSION_REQUIRED = 1;
 
@@ -54,21 +56,46 @@ export function init(fname: string) {
   return db;
 }
 
-type MimeContent = Pick<BufferMedia, 'mime'|'content'>;
+type MimeContent = Pick<i.BufferMedia, 'mime'|'content'>;
 function getFilename(db: Db, filename: string): MimeContent|undefined {
   return db.prepare(`select mime, content from media where filename=$filename`).get({filename});
 }
 
-function startServer(db: Db, port = 3456) {
-  // https://github.com/garybernhardt/static-path/issues/5
-  type paramify<T> = T extends Path<infer X>? Params<X>: never;
-
-  const filenamePath = path('/media/:filename');
+function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
+  const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
   const app = express.default();
+  app.use(require('body-parser').json());
   app.get('/', (req, res) => { res.send('hello world'); });
-  app.get(filenamePath.pattern, (req, res) => {
-    const filename = (req.params as paramify<typeof filenamePath>).filename;
+  app.put(i.mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
+    const files = req.files;
+    if (files && files instanceof Array) {
+      const ret: Record<string, number> = {};
+      const createdTime = Date.now();
+      const insertStatement = db.prepare(
+          `insert into media (filename, content, mime, size, createdTime) values ($filename, $content, $mime, $size, $createdTime)`);
+
+      for (const file of files) {
+        const media: i.BufferMedia =
+            {filename: file.filename, mime: file.mimetype, content: file.buffer, size: file.size, createdTime};
+        try {
+          const insert = insertStatement.run(media);
+          ret[media.filename] = insert.changes >= 1 ? 200 : 500;
+        } catch (e) {
+          if (uniqueConstraintError(e)) {
+            ret[media.filename] = 409;
+          } else {
+            throw e;
+          }
+        }
+      }
+      res.json(ret);
+      return;
+    }
+    res.status(400).send('need files');
+  });
+  app.get(i.filenamePath.pattern, (req, res) => {
+    const filename = (req.params as i.paramify<typeof i.filenamePath>).filename;
     if (filename && typeof filename === 'string') {
       const got = getFilename(db, filename);
       if (got) {
@@ -90,20 +117,20 @@ if (require.main === module) {
     mime: 'text/plain',
     content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
     createdTime: Date.now(),
-    checksumValue: '',
-    checksumAlgo: ''
+    size: 6,
   };
   try {
-    db.prepare(`insert into media (filename, content, mime, createdTime, checksumValue, checksumAlgo) 
-  values ($filename, $content, $mime, $createdTime, $checksumValue, $checksumAlgo)`)
+    db.prepare(
+          `insert into media (filename, content, mime, size, createdTime) values ($filename, $content, $mime, $size, $createdTime)`)
         .run(media);
   } catch (e) {
     if (!uniqueConstraintError(e)) {
       throw e;
     }
   }
-  const all: BufferMedia[] = db.prepare(`select * from media`).all();
+  const all: i.BufferMedia[] = db.prepare(`select * from media`).all();
   console.dir(all, {depth: null});
 
-  const app = startServer(db);
+  const port = 3456;
+  const app = startServer(db, port);
 }
