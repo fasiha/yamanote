@@ -6,6 +6,8 @@
   "scripts": {
     "prettysql": "sql-formatter -o db-v1.sql  db-v1.sql",
     "schema": "rm -f __empty.db && sqlite3 __empty.db < db-v1.sql && npx @rmp135/sql-ts -c sqlite.json --config sqlite.json && rm __empty.db",
+    "build": "tsc -p .",
+    "serve": "npm run build && node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,6 +21,7 @@
     "@types/node": "^16.9.2",
     "form-data": "^4.0.0",
     "knex": "^0.95.11",
+    "nodemon": "^2.0.15",
     "sql-formatter": "^4.0.2",
     "sqlite3": "^5.0.0",
     "ts-node": "^10.4.0",
@@ -26,6 +29,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^7.4.3",
+    "cors": "^2.8.5",
     "dotenv": "^10.0.0",
     "express": "^4.17.1",
     "fp-ts": "^2.11.2",

@@ -55,6 +55,7 @@ export function init(fname: string) {
     console.log('uninitialized, will create v1 schema');
     db.exec(readFileSync('db-v1.sql', 'utf8'));
   }
+  allBookmarksRender(db);
   return db;
 }
 
@@ -64,8 +65,9 @@ function getFilename(db: Db, filename: string): MimeContent|undefined {
 }
 
 function allBookmarksRender(db: Db) {
-  const res = db.prepare(`select group_concat(render, '\n') as all from bookmark order by modifiedTime desc`).get();
-  ALL_BOOKMARKS = res.all;
+  const res = db.prepare(`select group_concat(render, '\n') as renders from bookmark order by modifiedTime desc`).get();
+  const js = readFileSync('bookmarklet.js', 'utf8');
+  ALL_BOOKMARKS = `<p><a href="javascript:${js}">山手</a></p>` + (res.renders || '');
 }
 
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
@@ -78,8 +80,8 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
 
   let commentRender = '';
 
-  const commentTransaction = db.transaction((comment: Table.commentRow) => {
-    const result = firstInsert.run(comment);
+  const commentTransaction = db.transaction((commentRow: Table.commentRow) => {
+    const result = firstInsert.run(commentRow);
     const id = result.lastInsertRowid;
     const now = new Date();
     commentRender = `<pre id="comment-${id}" class="unrendered">${comment}
@@ -179,10 +181,13 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
   const app = express.default();
+  app.use(require('cors')());
   app.use(require('body-parser').json());
-  app.get('/', (req, res) => { res.send('hello world'); });
+  app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
+
   // bookmarks
   app.post(i.bookmarkPath.pattern, (req, res) => {
+    console.log('POST! ', req.body);
     if (!req.body) {
       res.status(400).send('post json');
       return;
@@ -202,7 +207,7 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
       const ret: Record<string, number> = {};
       const createdTime = Date.now();
       const insertStatement = db.prepare(
-          `insert into media (filename, content, mime, size, createdTime) values ($filename, $content, $mime, $size, $createdTime)`);
+          `insert into media (filename, content, mime, numBytes, createdTime) values ($filename, $content, $mime, $numBytes, $createdTime)`);
 
       for (const file of files) {
         const media: Table.mediaRow =
@@ -257,7 +262,7 @@ if (require.main === module) {
   };
   try {
     db.prepare(
-          `insert into media (filename, content, mime, size, createdTime) values ($filename, $content, $mime, $size, $createdTime)`)
+          `insert into media (filename, content, mime, numBytes, createdTime) values ($filename, $content, $mime, $numBytes, $createdTime)`)
         .run(media);
   } catch (e) {
     if (!uniqueConstraintError(e)) {
