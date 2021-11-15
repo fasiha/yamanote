@@ -67,7 +67,10 @@ function getFilename(db: Db, filename: string): MimeContent|undefined {
 function allBookmarksRender(db: Db) {
   const res = db.prepare(`select group_concat(render, '\n') as renders from bookmark order by modifiedTime desc`).get();
   const js = readFileSync('bookmarklet.js', 'utf8');
-  ALL_BOOKMARKS = `<p><a href="javascript:${js}">山手</a></p>` + (res.renders || '');
+  const prelude = readFileSync('prelude.html', 'utf8') +
+                  `<p>Bookmarklet: <a href="javascript:${
+                      js}">山の手</a>. Code: <a href="https://github.com/fasiha/yamanote">GitHub</a></p>`;
+  ALL_BOOKMARKS = prelude + (res.renders || '');
 }
 
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
