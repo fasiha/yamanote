@@ -7,6 +7,7 @@ import {readFileSync} from 'fs';
 import * as t from 'io-ts';
 import multer from 'multer';
 import {Params, path, Path} from 'static-path';
+import {URL} from 'url';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
@@ -15,6 +16,7 @@ import * as i from './pathsInterfaces';
 const SCHEMA_VERSION_REQUIRED = 1;
 
 type Db = ReturnType<typeof sqlite3>;
+let ALL_BOOKMARKS = '';
 
 function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
@@ -38,7 +40,7 @@ type Selected<T> = (T&{id: number})|undefined;
 
 export function init(fname: string) {
   const db = sqlite3(fname);
-
+  db.pragma('journal_mode = WAL'); // https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
   let s = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`);
   const tableThere = s.get('_yamanote_db_state');
 
@@ -56,9 +58,121 @@ export function init(fname: string) {
   return db;
 }
 
-type MimeContent = Pick<i.BufferMedia, 'mime'|'content'>;
+type MimeContent = Pick<Table.mediaRow, 'mime'|'content'>;
 function getFilename(db: Db, filename: string): MimeContent|undefined {
   return db.prepare(`select mime, content from media where filename=$filename`).get({filename});
+}
+
+function allBookmarksRender(db: Db) {
+  const res = db.prepare(`select group_concat(render, '\n') as all from bookmark order by modifiedTime desc`).get();
+  ALL_BOOKMARKS = res.all;
+}
+
+function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
+  const now = Date.now();
+
+  const firstInsert =
+      db.prepare(`insert into comment (bookmarkId, content, createdTime, modifiedTime, render, renderedTime) 
+  values ($bookmarkId, $content, $createdTime, $modifiedTime, $render, $renderedTime)`);
+  const secondUpdate = db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`);
+
+  let commentRender = '';
+
+  const commentTransaction = db.transaction((comment: Table.commentRow) => {
+    const result = firstInsert.run(comment);
+    const id = result.lastInsertRowid;
+    const now = new Date();
+    commentRender = `<pre id="comment-${id}" class="unrendered">${comment}
+
+${now.toISOString()}</pre>`;
+    secondUpdate.run({id, render: commentRender, renderedTime: now.valueOf()});
+  });
+  const commentRow: Table.commentRow = {
+    bookmarkId: bookmarkId,
+    content: comment,
+    createdTime: now,
+    modifiedTime: now,
+    render: '',
+    renderedTime: now,
+  };
+  commentTransaction(commentRow);
+
+  return commentRender;
+}
+
+function bodyToBookmark(db: Db, body: Record<string, string>): string {
+  const {url, title, comment} = body;
+  if (typeof url === 'string' && typeof title === 'string') {
+    if (url || title) {
+      // I need at least one of these to be non-empty
+
+      // optimization possibiity: don't get `render` if no `comment`
+      const bookmark: {count: number, id: number|null, render: string|null} =
+          db.prepare(`select count(*) as count, id, render from bookmark where url=$url and title=$title`)
+              .get({title, url})
+
+      // There's a bookmark already
+      if (bookmark.count > 0 && typeof bookmark.id === 'number' && typeof bookmark.render === 'string') {
+        const now = Date.now();
+        if (typeof comment === 'string') {
+          const commentRender = addCommentToBookmark(db, comment, bookmark.id);
+          const breakStr = '\n';
+          const newline = bookmark.render.indexOf(breakStr);
+          if (newline < 0) {
+            throw new Error('no newline in render ' + bookmark.id);
+          }
+          // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
+          const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n';
+          const now = Date.now();
+          db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime`)
+              .run({render: newRender, renderedTime: now, modifiedTime: now})
+        } else {
+          // no comment, just bump the modifiedTime: we're not rendering this anywhere (yet)
+          db.prepare(`update bookmark set modifiedTime=$modifiedTime`).run({modifiedTime: Date.now()});
+        }
+      }
+      else {
+        // brand new bookmark!
+        let now = Date.now();
+        const bookmarkRow: Table
+            .bookmarkRow = {userId: -1, url, title, createdTime: now, modifiedTime: now, render: '', renderedTime: now};
+        const insertResult =
+            db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
+          values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
+                .run(bookmarkRow)
+        let render = '';
+        {
+          let commentRender = '';
+          if (comment) {
+            commentRender = addCommentToBookmark(db, comment, insertResult.lastInsertRowid)
+          }
+          let header = '';
+          if (url && title) {
+            let urlsnippet = '';
+            try {
+              const urlobj = new URL(url);
+              urlsnippet = ` <small class="url-snippet">${urlobj.hostname}</small>`;
+            } catch {}
+            header = `<a href="${url}">${title}</a>${urlsnippet}`;
+          } else if (url) {
+            header = `<a href="${url}">${url}</a>`;
+          } else if (title) {
+            header = title;
+          }
+          render = `<div id="bookmark-${insertResult.lastInsertRowid}">${header}
+${commentRender}
+</div>`;
+        }
+        now = Date.now();
+        db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime`)
+            .run({render: render, renderedTime: now, modifiedTime: now})
+      }
+      allBookmarksRender(db);
+      return '';
+    }
+    return 'need url OR title'
+  }
+  return 'need `url` and `title` as strings'
 }
 
 function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
@@ -67,6 +181,21 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
   const app = express.default();
   app.use(require('body-parser').json());
   app.get('/', (req, res) => { res.send('hello world'); });
+  // bookmarks
+  app.post(i.bookmarkPath.pattern, (req, res) => {
+    if (!req.body) {
+      res.status(400).send('post json');
+      return;
+    }
+    const err = bodyToBookmark(db, req.body);
+    if (!err) {
+      res.send('thx');
+      return;
+    }
+    res.status(400).send(err);
+  });
+
+  // media
   app.post(i.mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
     const files = req.files;
     if (files && files instanceof Array) {
@@ -76,7 +205,7 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
           `insert into media (filename, content, mime, size, createdTime) values ($filename, $content, $mime, $size, $createdTime)`);
 
       for (const file of files) {
-        const media: i.BufferMedia =
+        const media: Table.mediaRow =
             {filename: file.originalname, mime: file.mimetype, content: file.buffer, numBytes: file.size, createdTime};
         try {
           const insert = insertStatement.run(media);
@@ -111,7 +240,7 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
 }
 
 if (require.main === module) {
-  function clean(x: i.BufferMedia) {
+  function clean(x: Table.mediaRow) {
     if (x.mime.includes('text/plain')) {
       x.content = x.content.toString();
     }
@@ -135,7 +264,7 @@ if (require.main === module) {
       throw e;
     }
   }
-  const all: i.BufferMedia[] = db.prepare(`select * from media`).all();
+  const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
   console.dir(all.map(clean), {depth: null});
 
   const port = 3456;
@@ -159,7 +288,7 @@ if (require.main === module) {
           res.on('data', (chunk) => { reply += chunk; });
           res.on('end', () => { console.log({reply: JSON.parse(reply)}); });
         }
-        const all: i.BufferMedia[] = db.prepare(`select * from media`).all();
+        const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
         console.dir(all.map(clean), {depth: null});
       }
     });
