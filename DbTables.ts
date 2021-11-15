@@ -3,17 +3,17 @@
 * Rerun sql-ts to regenerate this file.
 */
 export interface _yamanote_db_stateRow {
-  'schemaVersion': number;
+  'schemaVersion': number|bigint;
 }
 export interface backupRow {
-  'id'?: number | null;
-  'bookmarkId': number;
+  'id'?: number|bigint | null;
+  'bookmarkId': number|bigint;
   'content': string;
   'createdTime': number;
 }
 export interface bookmarkRow {
-  'id'?: number | null;
-  'userId': number;
+  'id'?: number|bigint | null;
+  'userId': number|bigint;
   'url': string;
   'title': string;
   'createdTime': number;
@@ -22,8 +22,8 @@ export interface bookmarkRow {
   'renderedTime': number;
 }
 export interface commentRow {
-  'id'?: number | null;
-  'bookmarkId': number;
+  'id'?: number|bigint | null;
+  'bookmarkId': number|bigint;
   'content': string;
   'createdTime': number;
   'modifiedTime': number;
@@ -31,19 +31,19 @@ export interface commentRow {
   'renderedTime': number;
 }
 export interface mediaRow {
-  'id'?: number | null;
+  'id'?: number|bigint | null;
   'filename': string;
   'mime': string;
-  'content': any;
+  'content': Buffer|string|Uint8Array;
   'createdTime': number;
-  'numBytes': number;
+  'numBytes': number|bigint;
 }
 export interface userRow {
-  'id'?: number | null;
+  'id'?: number|bigint | null;
   'name': string;
   'hashed': string;
   'salt': string;
-  'iterations': number;
-  'keylen': number;
+  'iterations': number|bigint;
+  'keylen': number|bigint;
   'digest': string;
 }

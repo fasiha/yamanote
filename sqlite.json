@@ -4,5 +4,13 @@
     "filename": "./__empty.db"
   },
   "interfaceNameFormat": "${table}Row",
-  "filename": "DbTables"
+  "filename": "DbTables",
+  "typeMap": {
+    "Buffer|string|Uint8Array": [
+      "blob"
+    ],
+    "number|bigint": [
+      "integer"
+    ]
+  }
 }
