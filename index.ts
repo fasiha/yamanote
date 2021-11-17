@@ -224,6 +224,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.use(require('cors')());
   app.use(require('body-parser').json());
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
+  app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
 
   // bookmarks
   app.post(i.bookmarkPath.pattern, (req, res) => {
