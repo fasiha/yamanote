@@ -68,7 +68,7 @@ function cacheAllBookmarks(db: Db) {
   const renders = res.map(o => o.render).join('\n');
   const js = readFileSync('bookmarklet.js', 'utf8');
   const prelude = readFileSync('prelude.html', 'utf8') +
-                  `<p>Bookmarklet: <a href="javascript:${
+                  `<p>Bookmarklet: <a id="bookmarklet" href="${
                       js}">山の手</a>. Code: <a href="https://github.com/fasiha/yamanote">GitHub</a></p>`;
   ALL_BOOKMARKS = prelude + (renders || '');
 }
