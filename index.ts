@@ -15,6 +15,10 @@ const SCHEMA_VERSION_REQUIRED = 1;
 
 type Db = ReturnType<typeof sqlite3>;
 let ALL_BOOKMARKS = '';
+/**
+ * Save a new backup after a week
+ */
+const SAVE_BACKUP_THROTTLE_MILLISECONDS = 3600e3 * 24 * 7;
 
 function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
@@ -162,7 +166,7 @@ ${commentsRender}
       .run({render, renderedTime: Date.now(), id});
 }
 
-function bodyToBookmark(db: Db, body: Record<string, string>): string {
+function bodyToBookmark(db: Db, body: Record<string, string|undefined>): string {
   const {url, title, comment, html} = body;
   if (typeof url === 'string' && typeof title === 'string') {
     if (url || title) {
@@ -170,9 +174,11 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
 
       // optimization possibiity: don't get `render` if no `comment`
       const bookmark: Partial<Selected<Table.bookmarkRow>> =
-          db.prepare(`select id, render from bookmark where url=$url and title=$title`).get({title, url})
+          db.prepare(`select id, render, modifiedTime from bookmark where url=$url and title=$title`).get({title, url})
 
       let id: number|bigint;
+
+      let dobackup = false;
 
       // insert/update bookmark and comment
       if (bookmark && typeof bookmark.id === 'number' && typeof bookmark.render === 'string') {
@@ -180,27 +186,26 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
         id = bookmark.id;
 
         const now = Date.now();
-        if (typeof comment === 'string') {
-          const commentRender = addCommentToBookmark(db, comment, id);
-          const breakStr = '\n';
-          const newline = bookmark.render.indexOf(breakStr);
-          if (newline < 0) {
-            throw new Error('no newline in render ' + id);
-          }
-          // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
-          const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
-                            bookmark.render.slice(newline + breakStr.length);
-          const now = Date.now();
-          db.prepare(
-                `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
-              .run({render: newRender, renderedTime: now, modifiedTime: now, id: id})
-        } else {
-          // no comment, just bump the modifiedTime: we're not rendering this anywhere (yet)
-          db.prepare(`update bookmark set modifiedTime=$modifiedTime where id=$id`)
-              .run({modifiedTime: Date.now(), id: id});
+
+        if (bookmark.modifiedTime) {
+          dobackup = (now - bookmark.modifiedTime) > SAVE_BACKUP_THROTTLE_MILLISECONDS;
         }
+
+        const commentRender = addCommentToBookmark(db, comment ?? '', id);
+        const breakStr = '\n';
+        const newline = bookmark.render.indexOf(breakStr);
+        if (newline < 0) {
+          throw new Error('no newline in render ' + id);
+        }
+        // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
+        const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
+                          bookmark.render.slice(newline + breakStr.length);
+        db.prepare(
+              `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
+            .run({render: newRender, renderedTime: now, modifiedTime: now, id: id})
       } else {
         // brand new bookmark!
+        dobackup = true;
         let now = Date.now();
         const bookmarkRow: Table
             .bookmarkRow = {userId: -1, url, title, createdTime: now, modifiedTime: now, render: '', renderedTime: now};
@@ -210,14 +215,14 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
                 .run(bookmarkRow)
 
         id = insertResult.lastInsertRowid;
-        const commentRender = addCommentToBookmark(db, comment, id);
+        const commentRender = addCommentToBookmark(db, comment ?? '', id);
 
         rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
       }
       cacheAllBookmarks(db);
 
       // handle full-HTML backup
-      if (html) {
+      if (html && dobackup) {
         db.prepare(`insert into backup (bookmarkId, content, createdTime) values ($bookmarkId, $content, $createdTime)`)
             .run({bookmarkId: id, content: html, createdTime: Date.now()});
       }
@@ -241,7 +246,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
   // bookmarks
   app.post(i.bookmarkPath.pattern, (req, res) => {
-    // console.log('POST! ', req.body);
+    console.log('POST! ', {title: req.body.title, url: req.body.url});
     if (!req.body) {
       res.status(400).send('post json');
       return;
@@ -368,7 +373,7 @@ if (require.main === module) {
     }
     {
       const all: NonNullable<Selected<Table.backupRow>>[] = db.prepare(`select * from backup`).all()
-      // console.log(all);
+      console.log(all.map(o => o.content.length / 1024 + ' kb'));
     }
   })();
 }
