@@ -72,36 +72,45 @@ function cacheAllBookmarks(db: Db) {
   ALL_BOOKMARKS = prelude + (renders || '');
 }
 
+function rerenderComment(db: Db, idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint)): string {
+  let id: number|bigint;
+  let comment: Table.commentRow;
+  if (typeof idOrComment === 'object') {
+    id = idOrComment.id;
+    comment = idOrComment;
+  } else {
+    id = idOrComment;
+    comment = db.prepare(`select * from comment where id=$id`).get({id: idOrComment});
+  }
+
+  let anchor = `comment-${id}`;
+  let timestamp = `<a href="#${anchor}">${(new Date(comment.createdTime)).toISOString()}</a>`;
+  if (comment.createdTime !== comment.modifiedTime) {
+    const mod = (new Date(comment.modifiedTime)).toISOString();
+    timestamp += ` → ${mod}`;
+  }
+
+  const render =
+      `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre> ${timestamp}</div>`;
+  db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
+      .run({id, render, renderedTime: Date.now()});
+  return render;
+}
+
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
   const now = Date.now();
-
-  const firstInsert =
-      db.prepare(`insert into comment (bookmarkId, content, createdTime, modifiedTime, render, renderedTime) 
-  values ($bookmarkId, $content, $createdTime, $modifiedTime, $render, $renderedTime)`);
-  const secondUpdate = db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`);
-
-  let commentRender = '';
-
-  const commentTransaction = db.transaction((commentRow: Table.commentRow) => {
-    const result = firstInsert.run(commentRow);
-    const id = result.lastInsertRowid;
-    const now = new Date();
-    commentRender = `<pre id="comment-${id}" class="unrendered">${encode(comment)}
-
-${now.toISOString()}</pre>`;
-    secondUpdate.run({id, render: commentRender, renderedTime: now.valueOf()});
-  });
   const commentRow: Table.commentRow = {
     bookmarkId: bookmarkId,
     content: comment,
     createdTime: now,
     modifiedTime: now,
-    render: '',
-    renderedTime: now,
+    render: '',       // will be overwritten later in this function, by `rerenderComment`
+    renderedTime: -1, // again, will be overwritten
   };
-  commentTransaction(commentRow);
-
-  return commentRender;
+  const result = db.prepare(`insert into comment (bookmarkId, content, createdTime, modifiedTime, render, renderedTime) 
+  values ($bookmarkId, $content, $createdTime, $modifiedTime, $render, $renderedTime)`)
+                     .run(commentRow);
+  return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
 }
 
 function encodeTitle(title: string): string {
@@ -109,7 +118,7 @@ function encodeTitle(title: string): string {
 }
 
 // as in, don't recurse into comments to render those: assume those are fine.
-function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|Selected<Table.bookmarkRow>,
+function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNullable<Selected<Table.bookmarkRow>>,
                               preexistingRenders?: {render: string}[]) {
   const bookmark: Table.bookmarkRow = typeof idOrBookmark === 'object'
                                           ? idOrBookmark
@@ -143,7 +152,7 @@ function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|Selected<Tab
   }
 
   // As a super-fast way to update renders upon re-bookmarking, let the entire header live on a single line
-  const render = `<div id="bookmark-${id}">${header}
+  const render = `<div id="bookmark-${id}" class="bookmark">${header}
 ${commentsRender}
 </div>`;
   db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
@@ -330,9 +339,16 @@ if (require.main === module) {
       console.dir(all.map(clean), {depth: null});
     }
     {
+      const all: NonNullable<Selected<Table.commentRow>>[] =
+          db.prepare(`select * from comment order by modifiedTime desc`).all()
+      // for (const x of all) { console.log(rerenderComment(db, x)); }
+      // cacheAllBookmarks(db);
+    }
+    {
       const all: NonNullable<Selected<Table.bookmarkRow>>[] =
           db.prepare(`select * from bookmark order by modifiedTime desc`).all()
-      console.dir(all.map(o => ({...o, modified: (new Date(o.modifiedTime)).toISOString()})), {depth: null});
+      // for (const x of all) { rerenderJustBookmark(db, x); }
+      // cacheAllBookmarks(db);
     }
   })();
 }
