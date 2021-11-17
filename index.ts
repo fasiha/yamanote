@@ -255,50 +255,52 @@ if (require.main === module) {
     return x;
   }
 
-  const db = init('yamanote.db');
-  const media: Table.mediaRow = {
-    filename: 'raw.dat',
-    mime: 'text/plain',
-    content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
-    createdTime: Date.now(),
-    numBytes: 6,
-  };
-  try {
-    db.prepare(
-          `insert into media (filename, content, mime, numBytes, createdTime) values ($filename, $content, $mime, $numBytes, $createdTime)`)
-        .run(media);
-  } catch (e) {
-    if (!uniqueConstraintError(e)) {
-      throw e;
-    }
-  }
-  const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
-  console.dir(all.map(clean), {depth: null});
-
-  const port = 3456;
-  const app = startServer(db, port);
-
-  {
-    const form = new FormData();
-    const contentType = "text/plain";
-    for (const name of 'a,b,c'.split(',')) {
-      const txt = name === 'a' ? 'fileA contents' : name === 'b' ? 'fileBBB' : 'c';
-      form.append('files', Buffer.from(txt), {filename: `file${name}.txt`, contentType, knownLength: txt.length});
-    }
-    const url = `http://localhost:${port}${i.mediaPath({})}`;
-    form.submit(url, (err, res) => {
-      if (err) {
-        console.error('error!', err)
-      } else {
-        {
-          // via https://stackoverflow.com/a/54025408
-          let reply = '';
-          res.on('data', (chunk) => { reply += chunk; });
-          res.on('end', () => { console.log({reply: JSON.parse(reply)}); });
-        }
-        const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
-        console.dir(all.map(clean), {depth: null});
+  (async function main() {
+    const db = init('yamanote.db');
+    const media: Table.mediaRow = {
+      filename: 'raw.dat',
+      mime: 'text/plain',
+      content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
+      createdTime: Date.now(),
+      numBytes: 6,
+    };
+    try {
+      db.prepare(
+            `insert into media (filename, content, mime, numBytes, createdTime) values ($filename, $content, $mime, $numBytes, $createdTime)`)
+          .run(media);
+    } catch (e) {
+      if (!uniqueConstraintError(e)) {
+        throw e;
       }
-    });
-  }
+    }
+    const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
+    console.dir(all.map(clean), {depth: null});
+
+    const port = 3456;
+    const app = startServer(db, port);
+
+    {
+      const form = new FormData();
+      const contentType = "text/plain";
+      for (const name of 'a,b,c'.split(',')) {
+        const txt = name === 'a' ? 'fileA contents' : name === 'b' ? 'fileBBB' : 'c';
+        form.append('files', Buffer.from(txt), {filename: `file${name}.txt`, contentType, knownLength: txt.length});
+      }
+      const url = `http://localhost:${port}${i.mediaPath({})}`;
+      form.submit(url, (err, res) => {
+        if (err) {
+          console.error('error!', err)
+        } else {
+          {
+            // via https://stackoverflow.com/a/54025408
+            let reply = '';
+            res.on('data', (chunk) => { reply += chunk; });
+            res.on('end', () => { console.log({reply: JSON.parse(reply)}); });
+          }
+          const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
+          console.dir(all.map(clean), {depth: null});
+        }
+      });
+    }
+  })();
 }
