@@ -1,12 +1,9 @@
 import sqlite3 from 'better-sqlite3';
-import crypto from 'crypto';
 import * as express from 'express';
 import FormData from 'form-data';
-import {string} from 'fp-ts';
 import {readFileSync} from 'fs';
-import * as t from 'io-ts';
+import {encode} from 'html-entities';
 import multer from 'multer';
-import {Params, path, Path} from 'static-path';
 import {URL} from 'url';
 import {promisify} from 'util';
 
@@ -36,7 +33,7 @@ function uniqueConstraintError(e: unknown): boolean {
  * better to just use our knowledge that `id` is the only column thus affected,
  * as below. If we ever add more nullable columns, the following is safer:
  */
-type Selected<T> = (T&{id: number})|undefined;
+type Selected<T> = (T&{id: number | bigint})|undefined;
 
 export function init(fname: string) {
   const db = sqlite3(fname);
@@ -55,7 +52,7 @@ export function init(fname: string) {
     console.log('uninitialized, will create v1 schema');
     db.exec(readFileSync('db-v1.sql', 'utf8'));
   }
-  allBookmarksRender(db);
+  cacheAllBookmarks(db);
   return db;
 }
 
@@ -64,13 +61,15 @@ function getFilename(db: Db, filename: string): MimeContent|undefined {
   return db.prepare(`select mime, content from media where filename=$filename`).get({filename});
 }
 
-function allBookmarksRender(db: Db) {
-  const res = db.prepare(`select group_concat(render, '\n') as renders from bookmark order by modifiedTime desc`).get();
+function cacheAllBookmarks(db: Db) {
+  const res: Pick<Table.bookmarkRow, 'render'>[] =
+      db.prepare(`select render from bookmark order by modifiedTime desc`).all();
+  const renders = res.map(o => o.render).join('\n');
   const js = readFileSync('bookmarklet.js', 'utf8');
   const prelude = readFileSync('prelude.html', 'utf8') +
                   `<p>Bookmarklet: <a href="javascript:${
                       js}">山の手</a>. Code: <a href="https://github.com/fasiha/yamanote">GitHub</a></p>`;
-  ALL_BOOKMARKS = prelude + (res.renders || '');
+  ALL_BOOKMARKS = prelude + (renders || '');
 }
 
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
@@ -87,7 +86,7 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
     const result = firstInsert.run(commentRow);
     const id = result.lastInsertRowid;
     const now = new Date();
-    commentRender = `<pre id="comment-${id}" class="unrendered">${comment}
+    commentRender = `<pre id="comment-${id}" class="unrendered">${encode(comment)}
 
 ${now.toISOString()}</pre>`;
     secondUpdate.run({id, render: commentRender, renderedTime: now.valueOf()});
@@ -103,6 +102,52 @@ ${now.toISOString()}</pre>`;
   commentTransaction(commentRow);
 
   return commentRender;
+}
+
+function encodeTitle(title: string): string {
+  return encode(title.replace(/[\n\r]+/g, '↲')); // alternatives include pilcrow, ¶
+}
+
+// as in, don't recurse into comments to render those: assume those are fine.
+function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|Selected<Table.bookmarkRow>,
+                              preexistingRenders?: {render: string}[]) {
+  const bookmark: Table.bookmarkRow = typeof idOrBookmark === 'object'
+                                          ? idOrBookmark
+                                          : db.prepare(`select * from bookmark where id=$id`).get({id: idOrBookmark})
+  const id = typeof idOrBookmark === 'object' ? idOrBookmark.id : idOrBookmark;
+  if (!bookmark) {
+    throw new Error('unknown bookmark ' + idOrBookmark);
+  }
+  const {url, title} = bookmark;
+
+  let header = '';
+  if (url && title) {
+    let urlsnippet = '';
+    try {
+      const urlobj = new URL(url);
+      urlsnippet = ` <small class="url-snippet">${urlobj.hostname}</small>`;
+    } catch {}
+    header = `<a href="${url}">${encodeTitle(title)}</a>${urlsnippet}`;
+  } else if (url) {
+    header = `<a href="${url}">${url}</a>`;
+  } else if (title) {
+    header = encodeTitle(title);
+  }
+
+  let commentsRender = '';
+  if (!preexistingRenders) {
+    const rows = db.prepare(`select render from comment where bookmarkId=$id order by createdTime desc`).all({id});
+    commentsRender = rows.map(o => o.render).join('\n');
+  } else {
+    commentsRender = preexistingRenders.map(o => o.render).join('\n');
+  }
+
+  // As a super-fast way to update renders upon re-bookmarking, let the entire header live on a single line
+  const render = `<div id="bookmark-${id}">${header}
+${commentsRender}
+</div>`;
+  db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
+      .run({render, renderedTime: Date.now(), id});
 }
 
 function bodyToBookmark(db: Db, body: Record<string, string>): string {
@@ -127,13 +172,16 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
             throw new Error('no newline in render ' + bookmark.id);
           }
           // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
-          const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n';
+          const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
+                            bookmark.render.slice(newline + breakStr.length);
           const now = Date.now();
-          db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime`)
-              .run({render: newRender, renderedTime: now, modifiedTime: now})
+          db.prepare(
+                `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
+              .run({render: newRender, renderedTime: now, modifiedTime: now, id: bookmark.id})
         } else {
           // no comment, just bump the modifiedTime: we're not rendering this anywhere (yet)
-          db.prepare(`update bookmark set modifiedTime=$modifiedTime`).run({modifiedTime: Date.now()});
+          db.prepare(`update bookmark set modifiedTime=$modifiedTime where id=$id`)
+              .run({modifiedTime: Date.now(), id: bookmark.id});
         }
       }
       else {
@@ -145,34 +193,12 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
             db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
           values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
                 .run(bookmarkRow)
-        let render = '';
-        {
-          let commentRender = '';
-          if (comment) {
-            commentRender = addCommentToBookmark(db, comment, insertResult.lastInsertRowid)
-          }
-          let header = '';
-          if (url && title) {
-            let urlsnippet = '';
-            try {
-              const urlobj = new URL(url);
-              urlsnippet = ` <small class="url-snippet">${urlobj.hostname}</small>`;
-            } catch {}
-            header = `<a href="${url}">${title}</a>${urlsnippet}`;
-          } else if (url) {
-            header = `<a href="${url}">${url}</a>`;
-          } else if (title) {
-            header = title;
-          }
-          render = `<div id="bookmark-${insertResult.lastInsertRowid}">${header}
-${commentRender}
-</div>`;
-        }
-        now = Date.now();
-        db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime`)
-            .run({render: render, renderedTime: now, modifiedTime: now})
+
+        const commentRender = comment ? addCommentToBookmark(db, comment, insertResult.lastInsertRowid) : '';
+
+        rerenderJustBookmark(db, {...bookmarkRow, id: insertResult.lastInsertRowid}, [{render: commentRender}]);
       }
-      allBookmarksRender(db);
+      cacheAllBookmarks(db);
       return '';
     }
     return 'need url OR title'
@@ -302,6 +328,11 @@ if (require.main === module) {
 
       const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
       console.dir(all.map(clean), {depth: null});
+    }
+    {
+      const all: NonNullable<Selected<Table.bookmarkRow>>[] =
+          db.prepare(`select * from bookmark order by modifiedTime desc`).all()
+      console.dir(all.map(o => ({...o, modified: (new Date(o.modifiedTime)).toISOString()})), {depth: null});
     }
   })();
 }

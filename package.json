@@ -8,6 +8,7 @@
     "schema": "rm -f __empty.db && sqlite3 __empty.db < db-v1.sql && npx @rmp135/sql-ts -c sqlite.json --config sqlite.json && rm __empty.db",
     "build": "tsc -p .",
     "serve": "npm run build && node index.js",
+    "watch": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -33,6 +34,7 @@
     "dotenv": "^10.0.0",
     "express": "^4.17.1",
     "fp-ts": "^2.11.2",
+    "html-entities": "^2.3.2",
     "io-ts": "^2.2.16",
     "multer": "^1.4.3",
     "static-path": "^0.0.3"
