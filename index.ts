@@ -128,6 +128,7 @@ function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNullable<
     throw new Error('unknown bookmark ' + idOrBookmark);
   }
   const {url, title} = bookmark;
+  const anchor = `bookmark-${id}`;
 
   let header = '';
   if (url && title) {
@@ -142,6 +143,7 @@ function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNullable<
   } else if (title) {
     header = encodeTitle(title);
   }
+  header += ` <a href="#${anchor}" class="emojilink">🔗</a>`
 
   let commentsRender = '';
   if (!preexistingRenders) {
@@ -152,7 +154,7 @@ function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNullable<
   }
 
   // As a super-fast way to update renders upon re-bookmarking, let the entire header live on a single line
-  const render = `<div id="bookmark-${id}" class="bookmark">${header}
+  const render = `<div id="${anchor}" class="bookmark">${header}
 ${commentsRender}
 </div>`;
   db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
