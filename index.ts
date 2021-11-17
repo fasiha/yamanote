@@ -205,7 +205,7 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
           values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
                 .run(bookmarkRow)
 
-        const commentRender = comment ? addCommentToBookmark(db, comment, insertResult.lastInsertRowid) : '';
+        const commentRender = addCommentToBookmark(db, comment, insertResult.lastInsertRowid);
 
         rerenderJustBookmark(db, {...bookmarkRow, id: insertResult.lastInsertRowid}, [{render: commentRender}]);
       }
@@ -224,6 +224,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.use(require('cors')());
   app.use(require('body-parser').json());
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
+  app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
 
   // bookmarks
