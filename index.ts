@@ -1,4 +1,5 @@
 import sqlite3 from 'better-sqlite3';
+import bodyParser from 'body-parser';
 import * as express from 'express';
 import FormData from 'form-data';
 import {readFileSync} from 'fs';
@@ -162,25 +163,29 @@ ${commentsRender}
 }
 
 function bodyToBookmark(db: Db, body: Record<string, string>): string {
-  const {url, title, comment} = body;
+  const {url, title, comment, html} = body;
   if (typeof url === 'string' && typeof title === 'string') {
     if (url || title) {
       // I need at least one of these to be non-empty
 
       // optimization possibiity: don't get `render` if no `comment`
-      const bookmark: {count: number, id: number|null, render: string|null} =
-          db.prepare(`select count(*) as count, id, render from bookmark where url=$url and title=$title`)
-              .get({title, url})
+      const bookmark: Partial<Selected<Table.bookmarkRow>> =
+          db.prepare(`select id, render from bookmark where url=$url and title=$title`).get({title, url})
 
-      // There's a bookmark already
-      if (bookmark.count > 0 && typeof bookmark.id === 'number' && typeof bookmark.render === 'string') {
+      let id: number|bigint;
+
+      // insert/update bookmark and comment
+      if (bookmark && typeof bookmark.id === 'number' && typeof bookmark.render === 'string') {
+        // There's a bookmark already
+        id = bookmark.id;
+
         const now = Date.now();
         if (typeof comment === 'string') {
-          const commentRender = addCommentToBookmark(db, comment, bookmark.id);
+          const commentRender = addCommentToBookmark(db, comment, id);
           const breakStr = '\n';
           const newline = bookmark.render.indexOf(breakStr);
           if (newline < 0) {
-            throw new Error('no newline in render ' + bookmark.id);
+            throw new Error('no newline in render ' + id);
           }
           // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
           const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
@@ -188,14 +193,13 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
           const now = Date.now();
           db.prepare(
                 `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
-              .run({render: newRender, renderedTime: now, modifiedTime: now, id: bookmark.id})
+              .run({render: newRender, renderedTime: now, modifiedTime: now, id: id})
         } else {
           // no comment, just bump the modifiedTime: we're not rendering this anywhere (yet)
           db.prepare(`update bookmark set modifiedTime=$modifiedTime where id=$id`)
-              .run({modifiedTime: Date.now(), id: bookmark.id});
+              .run({modifiedTime: Date.now(), id: id});
         }
-      }
-      else {
+      } else {
         // brand new bookmark!
         let now = Date.now();
         const bookmarkRow: Table
@@ -205,11 +209,19 @@ function bodyToBookmark(db: Db, body: Record<string, string>): string {
           values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
                 .run(bookmarkRow)
 
-        const commentRender = addCommentToBookmark(db, comment, insertResult.lastInsertRowid);
+        id = insertResult.lastInsertRowid;
+        const commentRender = addCommentToBookmark(db, comment, id);
 
-        rerenderJustBookmark(db, {...bookmarkRow, id: insertResult.lastInsertRowid}, [{render: commentRender}]);
+        rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
       }
       cacheAllBookmarks(db);
+
+      // handle full-HTML backup
+      if (html) {
+        db.prepare(`insert into backup (bookmarkId, content, createdTime) values ($bookmarkId, $content, $createdTime)`)
+            .run({bookmarkId: id, content: html, createdTime: Date.now()});
+      }
+
       return '';
     }
     return 'need url OR title'
@@ -222,14 +234,14 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
   const app = express.default();
   app.use(require('cors')());
-  app.use(require('body-parser').json());
+  app.use(bodyParser.json({limit: 1 * 1024 ** 2}));
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
 
   // bookmarks
   app.post(i.bookmarkPath.pattern, (req, res) => {
-    console.log('POST! ', req.body);
+    // console.log('POST! ', req.body);
     if (!req.body) {
       res.status(400).send('post json');
       return;
@@ -353,6 +365,10 @@ if (require.main === module) {
           db.prepare(`select * from bookmark order by modifiedTime desc`).all()
       // for (const x of all) { rerenderJustBookmark(db, x); }
       // cacheAllBookmarks(db);
+    }
+    {
+      const all: NonNullable<Selected<Table.backupRow>>[] = db.prepare(`select * from backup`).all()
+      // console.log(all);
     }
   })();
 }
