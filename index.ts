@@ -180,7 +180,7 @@ ${commentRender}
   return 'need `url` and `title` as strings'
 }
 
-function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
+async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
   const app = express.default();
@@ -243,7 +243,8 @@ function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles
     }
     res.status(404).send('nonesuch');
   });
-  app.listen(port, () => console.log(`Example app listening at http://localhost:${port}`));
+  await new Promise((resolve, reject) => app.listen(port, () => resolve(1)));
+  console.log(`Example app listening at http://localhost:${port}`);
   return app;
 }
 
@@ -277,7 +278,7 @@ if (require.main === module) {
     console.dir(all.map(clean), {depth: null});
 
     const port = 3456;
-    const app = startServer(db, port);
+    const app = await startServer(db, port);
 
     {
       const form = new FormData();
@@ -287,20 +288,20 @@ if (require.main === module) {
         form.append('files', Buffer.from(txt), {filename: `file${name}.txt`, contentType, knownLength: txt.length});
       }
       const url = `http://localhost:${port}${i.mediaPath({})}`;
-      form.submit(url, (err, res) => {
-        if (err) {
-          console.error('error!', err)
-        } else {
-          {
-            // via https://stackoverflow.com/a/54025408
-            let reply = '';
-            res.on('data', (chunk) => { reply += chunk; });
-            res.on('end', () => { console.log({reply: JSON.parse(reply)}); });
-          }
-          const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
-          console.dir(all.map(clean), {depth: null});
-        }
+      // This is needlessly complicated because I want to test everything with async/await rather than callbacks, sorry
+      const res = await promisify(form.submit.bind(form))(url);
+      await new Promise((resolve, reject) => {
+        // via https://stackoverflow.com/a/54025408
+        let reply = '';
+        res.on('data', (chunk) => { reply += chunk; });
+        res.on('end', () => {
+          console.log({reply: JSON.parse(reply)});
+          resolve(1);
+        });
       });
+
+      const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
+      console.dir(all.map(clean), {depth: null});
     }
   })();
 }
