@@ -3,4 +3,18 @@
 
 <head>
   <title>Yamanote app 山の手</title>
+  <script>
+    window.addEventListener("message",async (event) => {
+      // console.log('eventor!',event);
+      const res=await fetch('http://localhost:3456/bookmark',
+        {method: 'POST',mode: 'cors',body: event.data,headers: {'Content-Type': 'application/json'}});
+      if(res.ok) {
+        window.close();
+      } else {
+        const err=`${res.status} ${res.statusText}`;
+        console.error(err);
+        alert(err);
+      }
+    },false);
+  </script>
 </head>
