@@ -3,3 +3,4 @@ node_modules/
 *.tsbuildinfo
 *.db
 *.db-*
+.DS_Store
