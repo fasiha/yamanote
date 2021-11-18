@@ -1,9 +1,8 @@
 window.addEventListener("message", async (event) => {
   // console.log('eventor!',event);
   document.body.append('going to await');
-  const res =
-      await fetch(window.location.origin + '/bookmark',
-                  {method: 'POST', mode: 'cors', body: event.data, headers: {'Content-Type': 'application/json'}});
+  const res = await fetch(
+      '/bookmark', {method: 'POST', mode: 'cors', body: event.data, headers: {'Content-Type': 'application/json'}});
   if (res.ok) {
     document.body.append('… OK!');
     window.close();
@@ -46,8 +45,7 @@ window.onload = () => {
         button.onclick = () => {
           const obj = {id, comment: textarea.value};
           console.log('WILL POST', obj);
-          fetch(window.location.origin + '/bookmark',
-                {method: 'POST', body: JSON.stringify(obj), headers: {'Content-Type': 'application/json'}})
+          fetch('/bookmark', {method: 'POST', body: JSON.stringify(obj), headers: {'Content-Type': 'application/json'}})
               .then(x => {
                 if (x.ok) {
                   location.reload();
