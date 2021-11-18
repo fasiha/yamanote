@@ -3,17 +3,16 @@ import bodyParser from 'body-parser';
 import * as express from 'express';
 import FormData from 'form-data';
 import {readFileSync} from 'fs';
-import {encode} from 'html-entities';
 import multer from 'multer';
 import {URL} from 'url';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
-import * as i from './pathsInterfaces';
+import {bookmarkPath, Db, filenamePath, mediaPath, paramify, Selected} from './pathsInterfaces';
+import {rerenderComment, rerenderJustBookmark} from './renderers';
 
 const SCHEMA_VERSION_REQUIRED = 1;
 
-type Db = ReturnType<typeof sqlite3>;
 let ALL_BOOKMARKS = '';
 /**
  * Save a new backup after a week
@@ -24,23 +23,7 @@ function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
 }
 
-/**
- * We need someting like `Selected` because sql-ts emits my tables' `id` as
- * `null|number` because I don't have to specify an `INTEGER PRIMARY KEY` when
- * *inserting*, as SQLite will make it for me. However, when *selecting*, the
- * `INTEGER PRIMARY KEY` field *will* be present.
- *
- * This could also be:
- * ```
- * type Selected<T> = Required<{[k in keyof T]: NonNullable<T[k]>}>|undefined;
- * ```
- * The above says "*All* keys are required and non-nullable". But I think it's
- * better to just use our knowledge that `id` is the only column thus affected,
- * as below. If we ever add more nullable columns, the following is safer:
- */
-type Selected<T> = (T&{id: number | bigint})|undefined;
-
-export function init(fname: string) {
+export function dbInit(fname: string) {
   const db = sqlite3(fname);
   db.pragma('journal_mode = WAL'); // https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
   let s = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`);
@@ -77,31 +60,6 @@ function cacheAllBookmarks(db: Db) {
   ALL_BOOKMARKS = prelude + (renders || '');
 }
 
-function rerenderComment(db: Db, idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint)): string {
-  let id: number|bigint;
-  let comment: Table.commentRow;
-  if (typeof idOrComment === 'object') {
-    id = idOrComment.id;
-    comment = idOrComment;
-  } else {
-    id = idOrComment;
-    comment = db.prepare(`select * from comment where id=$id`).get({id: idOrComment});
-  }
-
-  let anchor = `comment-${id}`;
-  let timestamp = `<a href="#${anchor}">${(new Date(comment.createdTime)).toISOString()}</a>`;
-  if (comment.createdTime !== comment.modifiedTime) {
-    const mod = (new Date(comment.modifiedTime)).toISOString();
-    timestamp += ` → ${mod}`;
-  }
-
-  const render =
-      `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre> ${timestamp}</div>`;
-  db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
-      .run({id, render, renderedTime: Date.now()});
-  return render;
-}
-
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
   const now = Date.now();
   const commentRow: Table.commentRow = {
@@ -116,54 +74,6 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
   values ($bookmarkId, $content, $createdTime, $modifiedTime, $render, $renderedTime)`)
                      .run(commentRow);
   return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
-}
-
-function encodeTitle(title: string): string {
-  return encode(title.replace(/[\n\r]+/g, '↲')); // alternatives include pilcrow, ¶
-}
-
-// as in, don't recurse into comments to render those: assume those are fine.
-function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNullable<Selected<Table.bookmarkRow>>,
-                              preexistingRenders?: {render: string}[]) {
-  const bookmark: Table.bookmarkRow = typeof idOrBookmark === 'object'
-                                          ? idOrBookmark
-                                          : db.prepare(`select * from bookmark where id=$id`).get({id: idOrBookmark})
-  const id = typeof idOrBookmark === 'object' ? idOrBookmark.id : idOrBookmark;
-  if (!bookmark) {
-    throw new Error('unknown bookmark ' + idOrBookmark);
-  }
-  const {url, title} = bookmark;
-  const anchor = `bookmark-${id}`;
-
-  let header = '';
-  if (url && title) {
-    let urlsnippet = '';
-    try {
-      const urlobj = new URL(url);
-      urlsnippet = ` <small class="url-snippet">${urlobj.hostname}</small>`;
-    } catch {}
-    header = `<a href="${url}">${encodeTitle(title)}</a>${urlsnippet}`;
-  } else if (url) {
-    header = `<a href="${url}">${url}</a>`;
-  } else if (title) {
-    header = encodeTitle(title);
-  }
-  header += ` <a href="#${anchor}" class="emojilink">🔗</a>`
-
-  let commentsRender = '';
-  if (!preexistingRenders) {
-    const rows = db.prepare(`select render from comment where bookmarkId=$id order by createdTime desc`).all({id});
-    commentsRender = rows.map(o => o.render).join('\n');
-  } else {
-    commentsRender = preexistingRenders.map(o => o.render).join('\n');
-  }
-
-  // As a super-fast way to update renders upon re-bookmarking, let the entire header live on a single line
-  const render = `<div id="${anchor}" class="bookmark">${header}
-${commentsRender}
-</div>`;
-  db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
-      .run({render, renderedTime: Date.now(), id});
 }
 
 function bodyToBookmark(db: Db, body: Record<string, string|undefined>): string {
@@ -245,7 +155,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
 
   // bookmarks
-  app.post(i.bookmarkPath.pattern, (req, res) => {
+  app.post(bookmarkPath.pattern, (req, res) => {
     console.log('POST! ', {title: req.body.title, url: req.body.url});
     if (!req.body) {
       res.status(400).send('post json');
@@ -260,7 +170,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   });
 
   // media
-  app.post(i.mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
+  app.post(mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
     const files = req.files;
     if (files && files instanceof Array) {
       const ret: Record<string, number> = {};
@@ -287,8 +197,8 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     }
     res.status(400).send('need files');
   });
-  app.get(i.filenamePath.pattern, (req, res) => {
-    const filename = (req.params as i.paramify<typeof i.filenamePath>).filename;
+  app.get(filenamePath.pattern, (req, res) => {
+    const filename = (req.params as paramify<typeof filenamePath>).filename;
     if (filename && typeof filename === 'string') {
       const got = getFilename(db, filename);
       if (got) {
@@ -313,7 +223,7 @@ if (require.main === module) {
   }
 
   (async function main() {
-    const db = init('yamanote.db');
+    const db = dbInit('yamanote.db');
     const media: Table.mediaRow = {
       filename: 'raw.dat',
       mime: 'text/plain',
@@ -343,7 +253,7 @@ if (require.main === module) {
         const txt = name === 'a' ? 'fileA contents' : name === 'b' ? 'fileBBB' : 'c';
         form.append('files', Buffer.from(txt), {filename: `file${name}.txt`, contentType, knownLength: txt.length});
       }
-      const url = `http://localhost:${port}${i.mediaPath({})}`;
+      const url = `http://localhost:${port}${mediaPath({})}`;
       // This is needlessly complicated because I want to test everything with async/await rather than callbacks, sorry
       const res = await promisify(form.submit.bind(form))(url);
       await new Promise((resolve, reject) => {
