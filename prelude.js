@@ -40,7 +40,7 @@ window.onload = () => {
         const div = document.createElement('div');
         div.appendChild(textarea);
         div.appendChild(button);
-        target.appendChild(div);
+        target.replaceWith(div); // replace the emoji <a> with this
 
         button.onclick = () => {
           const obj = {id, comment: textarea.value};
