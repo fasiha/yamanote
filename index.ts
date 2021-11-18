@@ -131,7 +131,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): string {
       dobackup = (now - bookmark.modifiedTime) > SAVE_BACKUP_THROTTLE_MILLISECONDS;
     }
 
-    const commentRender = addCommentToBookmark(db, comment ?? '', id);
+    const commentRender = addCommentToBookmark(db, comment, id);
     const breakStr = '\n';
     const newline = bookmark.render.indexOf(breakStr);
     if (newline < 0) {
@@ -167,7 +167,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): string {
             .run(bookmarkRow)
 
     id = insertResult.lastInsertRowid;
-    const commentRender = addCommentToBookmark(db, comment ?? '', id);
+    const commentRender = addCommentToBookmark(db, comment, id);
 
     rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
   }
@@ -196,7 +196,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
   // bookmarks
   app.post(bookmarkPath.pattern, (req, res) => {
-    console.log('POST! ', {title: req.body.title, url: req.body.url});
+    console.log('POST! ', {title: req.body.title, url: req.body.url, comment: (req.body.comment || '').slice(0, 100)});
     if (!req.body) {
       res.status(400).send('post json');
       return;
@@ -309,15 +309,15 @@ if (require.main === module) {
       const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
       console.dir(all.map(clean), {depth: null});
     }
-    {
+    if (0) {
       const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
-      // for (const x of all) { console.log(rerenderComment(db, x)); }
-      // cacheAllBookmarks(db);
+      for (const x of all) { rerenderComment(db, x); }
+      cacheAllBookmarks(db);
     }
-    {
+    if (0) {
       const all: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark order by modifiedTime desc`).all()
-      // for (const x of all) { rerenderJustBookmark(db, x); }
-      // cacheAllBookmarks(db);
+      for (const x of all) { rerenderJustBookmark(db, x); }
+      cacheAllBookmarks(db);
     }
     {
       const all: SelectedAll<Table.backupRow> = db.prepare(`select * from backup`).all()
