@@ -1,4 +1,4 @@
-import {encode} from "punycode";
+import {encode} from 'html-entities';
 import {URL} from 'url';
 
 import * as Table from './DbTables';
