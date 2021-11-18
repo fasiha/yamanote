@@ -8,7 +8,7 @@
     "schema": "rm -f __empty.db && sqlite3 __empty.db < db-v1.sql && npx @rmp135/sql-ts -c sqlite.json --config sqlite.json && rm __empty.db",
     "build": "tsc -p .",
     "serve": "npm run build && node index.js",
-    "watch": "nodemon index.js",
+    "watch": "nodemon -L index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
