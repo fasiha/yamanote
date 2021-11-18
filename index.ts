@@ -116,8 +116,13 @@ function bodyToBookmark(db: Db, body: Record<string, any>): string {
     return 'invalid request, failed io-ts specification'
   }
 
-  const comment = res.right.comment ?? '';
+  const quote = res.right.quote ?? false;
+  let comment = res.right.comment ?? '';
   let dobackup = false;
+
+  if (quote && comment) {
+    comment = '> ' + comment.replace(/\n/g, '\n> ');
+  }
 
   let id: number|bigint;
 
