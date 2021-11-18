@@ -4,11 +4,10 @@ import * as express from 'express';
 import FormData from 'form-data';
 import {readFileSync} from 'fs';
 import multer from 'multer';
-import {URL} from 'url';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
-import {bookmarkPath, Db, filenamePath, mediaPath, paramify, Selected} from './pathsInterfaces';
+import {bookmarkPath, Db, filenamePath, mediaPath, paramify, Selected, SelectedAll} from './pathsInterfaces';
 import {rerenderComment, rerenderJustBookmark} from './renderers';
 
 const SCHEMA_VERSION_REQUIRED = 1;
@@ -270,19 +269,17 @@ if (require.main === module) {
       console.dir(all.map(clean), {depth: null});
     }
     {
-      const all: NonNullable<Selected<Table.commentRow>>[] =
-          db.prepare(`select * from comment order by modifiedTime desc`).all()
+      const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
       // for (const x of all) { console.log(rerenderComment(db, x)); }
       // cacheAllBookmarks(db);
     }
     {
-      const all: NonNullable<Selected<Table.bookmarkRow>>[] =
-          db.prepare(`select * from bookmark order by modifiedTime desc`).all()
+      const all: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark order by modifiedTime desc`).all()
       // for (const x of all) { rerenderJustBookmark(db, x); }
       // cacheAllBookmarks(db);
     }
     {
-      const all: NonNullable<Selected<Table.backupRow>>[] = db.prepare(`select * from backup`).all()
+      const all: SelectedAll<Table.backupRow> = db.prepare(`select * from backup`).all()
       console.log(all.map(o => o.content.length / 1024 + ' kb'));
     }
   })();

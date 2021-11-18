@@ -23,3 +23,5 @@ export type Db = ReturnType<typeof sqlite3>;
  * as below. If we ever add more nullable columns, the following is safer:
  */
 export type Selected<T> = (T&{id: number | bigint})|undefined;
+
+export type SelectedAll<T> = NonNullable<Selected<T>>[];
