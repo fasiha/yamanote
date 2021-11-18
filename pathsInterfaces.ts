@@ -1,4 +1,5 @@
 import sqlite3 from 'better-sqlite3';
+import * as t from 'io-ts';
 import {Params, path, Path} from 'static-path';
 
 export type paramify<T> =
@@ -25,3 +26,8 @@ export type Db = ReturnType<typeof sqlite3>;
 export type Selected<T> = (T&{id: number | bigint})|undefined;
 
 export type SelectedAll<T> = NonNullable<Selected<T>>[];
+
+export const BookmarkPost =
+    t.partial({id: t.number, url: t.string, title: t.string, html: t.string, comment: t.string});
+// the above is a runtime const. The below is a compile-time type. This is ok, I promise.
+export type BookmarkPost = t.TypeOf<typeof BookmarkPost>;

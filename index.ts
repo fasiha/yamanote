@@ -4,10 +4,20 @@ import * as express from 'express';
 import FormData from 'form-data';
 import {readFileSync} from 'fs';
 import multer from 'multer';
+import assert from 'node:assert';
 import {promisify} from 'util';
 
 import * as Table from './DbTables';
-import {bookmarkPath, Db, filenamePath, mediaPath, paramify, Selected, SelectedAll} from './pathsInterfaces';
+import {
+  bookmarkPath,
+  BookmarkPost,
+  Db,
+  filenamePath,
+  mediaPath,
+  paramify,
+  Selected,
+  SelectedAll
+} from './pathsInterfaces';
 import {rerenderComment, rerenderJustBookmark} from './renderers';
 
 const SCHEMA_VERSION_REQUIRED = 1;
@@ -75,72 +85,102 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
   return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
 }
 
-function bodyToBookmark(db: Db, body: Record<string, string|undefined>): string {
-  const {url, title, comment, html} = body;
-  if (typeof url === 'string' && typeof title === 'string') {
-    if (url || title) {
-      // I need at least one of these to be non-empty
+function bodyToBookmark(db: Db, body: Record<string, any>): string {
+  // optimization possibiity: don't get `render` if no `comment`
+  type SmallBookmark = Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'>;
+  let bookmark: Selected<SmallBookmark>;
 
-      // optimization possibiity: don't get `render` if no `comment`
-      const bookmark: Partial<Selected<Table.bookmarkRow>> =
-          db.prepare(`select id, render, modifiedTime from bookmark where url=$url and title=$title`).get({title, url})
-
-      let id: number|bigint;
-
-      let dobackup = false;
-
-      // insert/update bookmark and comment
-      if (bookmark && typeof bookmark.id === 'number' && typeof bookmark.render === 'string') {
-        // There's a bookmark already
-        id = bookmark.id;
-
-        const now = Date.now();
-
-        if (bookmark.modifiedTime) {
-          dobackup = (now - bookmark.modifiedTime) > SAVE_BACKUP_THROTTLE_MILLISECONDS;
-        }
-
-        const commentRender = addCommentToBookmark(db, comment ?? '', id);
-        const breakStr = '\n';
-        const newline = bookmark.render.indexOf(breakStr);
-        if (newline < 0) {
-          throw new Error('no newline in render ' + id);
-        }
-        // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
-        const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
-                          bookmark.render.slice(newline + breakStr.length);
-        db.prepare(
-              `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
-            .run({render: newRender, renderedTime: now, modifiedTime: now, id: id})
-      } else {
-        // brand new bookmark!
-        dobackup = true;
-        let now = Date.now();
-        const bookmarkRow: Table
-            .bookmarkRow = {userId: -1, url, title, createdTime: now, modifiedTime: now, render: '', renderedTime: now};
-        const insertResult =
-            db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
-          values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
-                .run(bookmarkRow)
-
-        id = insertResult.lastInsertRowid;
-        const commentRender = addCommentToBookmark(db, comment ?? '', id);
-
-        rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
+  // Do we look up a specific bookmark by id, in which case it has to exist?
+  // Or are we just submitting a url/title that may or may not exist?
+  const res = BookmarkPost.decode(body);
+  if (res._tag === 'Right') {
+    const right = res.right;
+    if (right.id !== undefined) {
+      if (!isFinite(right.id) || right.id <= 0) {
+        return 'need positive id';
       }
-      cacheAllBookmarks(db);
-
-      // handle full-HTML backup
-      if (html && dobackup) {
-        db.prepare(`insert into backup (bookmarkId, content, createdTime) values ($bookmarkId, $content, $createdTime)`)
-            .run({bookmarkId: id, content: html, createdTime: Date.now()});
+      bookmark = db.prepare(`select id, render, modifiedTime from bookmark where id=$id`).get({id: right.id});
+      if (!bookmark) {
+        return 'not authorized';
       }
-
-      return '';
+      // bookmark is now valid
+    } else if (right.url || right.title) {
+      // url or right (one of them) is non-empty
+      bookmark = db.prepare(`select id, render, modifiedTime from bookmark where url=$url and title=$title`)
+                     .get({title: right.title ?? '', url: right.url ?? ''});
+      // bookmark MIGHT be valid
+    } else {
+      return 'invalid request: need {id} or {url, title}, if latter, url or title or both non-empty';
     }
-    return 'need url OR title'
+  } else {
+    return 'invalid request, failed io-ts specification'
   }
-  return 'need `url` and `title` as strings'
+
+  const comment = res.right.comment ?? '';
+  let dobackup = false;
+
+  let id: number|bigint;
+
+  if (bookmark) {
+    // There's a bookmark already
+    id = bookmark.id;
+
+    const now = Date.now();
+
+    if (bookmark.modifiedTime) {
+      dobackup = (now - bookmark.modifiedTime) > SAVE_BACKUP_THROTTLE_MILLISECONDS;
+    }
+
+    const commentRender = addCommentToBookmark(db, comment ?? '', id);
+    const breakStr = '\n';
+    const newline = bookmark.render.indexOf(breakStr);
+    if (newline < 0) {
+      throw new Error('no newline in render ' + id);
+    }
+    // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
+    const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
+                      bookmark.render.slice(newline + breakStr.length);
+    db.prepare(
+          `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
+        .run({render: newRender, renderedTime: now, modifiedTime: now, id: id})
+  } else {
+    // brand new bookmark!
+
+    const url = res.right.url ?? '';
+    const title = res.right.title ?? '';
+    assert(title || url, 'url or title or both non-empty'); // guaranteed above
+
+    dobackup = true;
+    let now = Date.now();
+    const bookmarkRow: Table.bookmarkRow = {
+      userId: -1,
+      url,
+      title,
+      createdTime: now,
+      modifiedTime: now,
+      render: '',        // will be overridden shortly, in `rerenderJustBookmark`
+      renderedTime: now, // ditto
+    };
+    const insertResult =
+        db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
+          values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
+            .run(bookmarkRow)
+
+    id = insertResult.lastInsertRowid;
+    const commentRender = addCommentToBookmark(db, comment ?? '', id);
+
+    rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
+  }
+  cacheAllBookmarks(db);
+
+  // handle full-HTML backup
+  const {html} = res.right;
+  if (html && dobackup) {
+    db.prepare(`insert into backup (bookmarkId, content, createdTime) values ($bookmarkId, $content, $createdTime)`)
+        .run({bookmarkId: id, content: html, createdTime: Date.now()});
+  }
+
+  return '';
 }
 
 async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
