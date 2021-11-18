@@ -192,6 +192,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
+  app.get('/prelude.js', (req, res) => res.sendFile(__dirname + '/prelude.js'));
 
   // bookmarks
   app.post(bookmarkPath.pattern, (req, res) => {
