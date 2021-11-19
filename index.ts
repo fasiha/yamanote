@@ -208,6 +208,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
   const app = express.default();
   app.use(require('cors')());
+  app.use(require('compression')());
   app.use(bodyParser.json({limit: fieldSize}));
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
