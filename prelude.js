@@ -1,11 +1,24 @@
 window.addEventListener("message", async (event) => {
   // console.log('eventor!',event);
   document.body.append('going to await');
+  let origin = '*';
+  try {
+    const obj = JSON.parse(event.data);
+    const url = new URL(obj.url);
+    origin = url.origin;
+  } catch {}
   const res = await fetch(
       '/bookmark', {method: 'POST', mode: 'cors', body: event.data, headers: {'Content-Type': 'application/json'}});
   if (res.ok) {
-    document.body.append('… OK!');
-    window.close();
+    const reply = await res.json();
+    if (reply && reply.htmlWanted) {
+      // can we avoid this round-trip JSON decode-encode?
+      event.source.postMessage(JSON.stringify(reply), origin);
+      document.body.append('… asking for HTML');
+    } else {
+      document.body.append('… OK!');
+      window.close();
+    }
   } else {
     document.body.append('… uhoh');
     const err = `${res.status} ${res.statusText}`;

@@ -78,3 +78,20 @@ ${commentsRender}
   db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
       .run({render, renderedTime: Date.now(), id});
 }
+
+export function fastUpdateBookmarkWithNewComment(db: Db, bookmarkRender: string, bookmarkId: number|bigint,
+                                                 commentRender: string) {
+  // Update bookmark if it exists
+  const now = Date.now();
+
+  const breakStr = '\n';
+  const newline = bookmarkRender.indexOf(breakStr);
+  if (newline < 0) {
+    throw new Error('no newline in render ' + bookmarkId);
+  }
+  // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
+  const newRender = bookmarkRender.substring(0, newline + breakStr.length) + commentRender + '\n' +
+                    bookmarkRender.slice(newline + breakStr.length);
+  db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
+      .run({render: newRender, renderedTime: now, modifiedTime: now, id: bookmarkId})
+}

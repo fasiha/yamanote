@@ -27,13 +27,36 @@ export type Selected<T> = (T&{id: number | bigint})|undefined;
 
 export type SelectedAll<T> = NonNullable<Selected<T>>[];
 
-export const BookmarkPost = t.partial({
-  id: t.number,
-  url: t.string,
-  title: t.string,
-  html: t.string,
-  comment: t.string,
-  quote: t.boolean,
-});
+export const AddBookmarkOrCommentPayload = t.intersection([
+  t.type({
+    _type: t.literal('addBookmarkOrComment'),
+    url: t.string,
+    title: t.string,
+    comment: t.string,
+  }),
+  // Above are REQUIRED. Below are OPTIONAL (`partial`)
+  t.partial({
+    html: t.string,
+    quote: t.boolean,
+  }),
+]);
 // the above is a runtime const. The below is a compile-time type. This is ok, I promise.
-export type BookmarkPost = t.TypeOf<typeof BookmarkPost>;
+export type AddBookmarkOrCommentPayload = t.TypeOf<typeof AddBookmarkOrCommentPayload>;
+
+export const AddCommentOnlyPayload = t.type({
+  _type: t.literal('addCommentOnly'),
+  id: t.number,
+  comment: t.string,
+});
+
+export const AddHtmlPayload = t.type({
+  _type: t.literal('addHtml'),
+  id: t.number,
+  html: t.string,
+});
+
+export const AskForHtmlPayload = t.type({
+  id: t.union([t.number, t.bigint]),
+  htmlWanted: t.boolean,
+});
+export type AskForHtmlPayload = t.TypeOf<typeof AskForHtmlPayload>;

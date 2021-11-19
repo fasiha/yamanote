@@ -2,6 +2,7 @@ import sqlite3 from 'better-sqlite3';
 import bodyParser from 'body-parser';
 import * as express from 'express';
 import FormData from 'form-data';
+import {string} from 'fp-ts';
 import {readFileSync} from 'fs';
 import multer from 'multer';
 import assert from 'node:assert';
@@ -9,8 +10,11 @@ import {promisify} from 'util';
 
 import * as Table from './DbTables';
 import {
+  AddBookmarkOrCommentPayload,
+  AddCommentOnlyPayload,
+  AddHtmlPayload,
+  AskForHtmlPayload,
   bookmarkPath,
-  BookmarkPost,
   Db,
   filenamePath,
   mediaPath,
@@ -18,15 +22,15 @@ import {
   Selected,
   SelectedAll
 } from './pathsInterfaces';
-import {rerenderComment, rerenderJustBookmark} from './renderers';
+import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers';
 
 const SCHEMA_VERSION_REQUIRED = 1;
 
 let ALL_BOOKMARKS = '';
 /**
- * Save a new backup after a week
+ * Save a new backup after a ~month
  */
-const SAVE_BACKUP_THROTTLE_MILLISECONDS = 3600e3 * 24 * 7;
+const SAVE_BACKUP_THROTTLE_MILLISECONDS = 3600e3 * 24 * 30;
 
 function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
@@ -85,107 +89,117 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
   return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
 }
 
-function bodyToBookmark(db: Db, body: Record<string, any>): string {
-  // optimization possibiity: don't get `render` if no `comment`
-  type SmallBookmark = Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'>;
-  let bookmark: Selected<SmallBookmark>;
+function createNewBookmark(db: Db, url: string, title: string, comment: string): number|bigint {
+  const now = Date.now();
+  const bookmarkRow: Table.bookmarkRow = {
+    userId: -1,
+    url,
+    title,
+    createdTime: now,
+    modifiedTime: now,
+    render: '',        // will be overridden shortly, in `rerenderJustBookmark`
+    renderedTime: now, // ditto
+  };
+  const insertResult =
+      db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
+        values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
+          .run(bookmarkRow)
 
-  // Do we look up a specific bookmark by id, in which case it has to exist?
-  // Or are we just submitting a url/title that may or may not exist?
-  const res = BookmarkPost.decode(body);
-  if (res._tag === 'Right') {
-    const right = res.right;
-    if (right.id !== undefined) {
-      if (!isFinite(right.id) || right.id <= 0) {
-        return 'need positive id';
+  const id = insertResult.lastInsertRowid;
+  const commentRender = addCommentToBookmark(db, comment, id);
+
+  rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
+  return id;
+}
+
+function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Record<string, any>] {
+  type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'>>;
+
+  {
+    const res = AddBookmarkOrCommentPayload.decode(body);
+    if (res._tag === 'Right') {
+      const {url, title, html, quote} = res.right;
+      let {comment} = res.right;
+
+      // ask for HTML if there's a URL without HTML, unless we already have a (recent) snapshot
+      let askForHtml = !!url && !html;
+
+      if (title || url) {
+        // one of these has to be non-empty
+
+        let id: bigint|number;
+
+        if (quote && comment) {
+          comment = '> ' + comment.replace(/\n/g, '\n> ');
+        }
+
+        const bookmark: SmallBookmark =
+            db.prepare(`select id, render, modifiedTime from bookmark where url=$url and title=$title`)
+                .get({title, url});
+
+        if (bookmark) {
+          // existing bookmark
+          id = bookmark.id;
+          const commentRender = addCommentToBookmark(db, comment, id);
+          fastUpdateBookmarkWithNewComment(db, bookmark.render, id, commentRender);
+
+          if (askForHtml) {
+            // we're going to ask for HTML so far: URL, no HTML given. But if we have recent HTML, we can set
+            // `askForHtml=false`. Let's check.
+            const backup: Pick<Table.backupRow, 'createdTime'>|undefined =
+                db.prepare(`select max(createdTime) as createdTime from backup where bookmarkId=$id`).get({id});
+            if (backup) {
+              const backupIsRecent = (Date.now() - backup.createdTime) < SAVE_BACKUP_THROTTLE_MILLISECONDS;
+              askForHtml = askForHtml && !(backup && backupIsRecent);
+              // EFFECTIVELY we're doing `askForHtml = url && !html && !(have backup && its recent)`.
+            }
+          }
+        } else {
+          // new bookmark
+          id = createNewBookmark(db, url, title, comment);
+        }
+        cacheAllBookmarks(db);
+
+        if (html) {
+          db.prepare(`insert into backup (bookmarkId, content, createdTime)
+                values ($bookmarkId, $content, $createdTime)`)
+              .run({bookmarkId: id, content: html, createdTime: Date.now()});
+        }
+        const reply: AskForHtmlPayload = {id, htmlWanted: askForHtml};
+
+        // the below will throw later if id is bigint, which better-sqlite3 will return if >2**53 or 10**16, because
+        // JSON.stringify doesn't work on bigint, and I don't want to bother with json-bigint.
+        return [200, reply];
       }
-      bookmark = db.prepare(`select id, render, modifiedTime from bookmark where id=$id`).get({id: right.id});
-      if (!bookmark) {
-        return 'not authorized';
+      return [400, 'need a `url` or `title` (or both)'];
+    }
+  }
+  {
+    const res = AddCommentOnlyPayload.decode(body);
+    if (res._tag === 'Right') {
+      const {id, comment} = res.right;
+      const bookmark: SmallBookmark =
+          db.prepare(`select id, render, modifiedTime from bookmark where id=$id`).get({id});
+      if (bookmark) {
+        fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, id));
+        return [200, {}];
       }
-      // bookmark is now valid
-    } else if (right.url || right.title) {
-      // url or right (one of them) is non-empty
-      bookmark = db.prepare(`select id, render, modifiedTime from bookmark where url=$url and title=$title`)
-                     .get({title: right.title ?? '', url: right.url ?? ''});
-      // bookmark MIGHT be valid
-    } else {
-      return 'invalid request: need {id} or {url, title}, if latter, url or title or both non-empty';
+      return [401, 'not authorized'];
     }
-  } else {
-    return 'invalid request, failed io-ts specification'
   }
+  {
+    const res = AddHtmlPayload.decode(body);
+    if (res._tag === 'Right') {
+      const {id, html} = res.right;
+      db.prepare(`insert into backup (bookmarkId, content, createdTime)
+      values ($bookmarkId, $content, $createdTime)`)
+          .run({bookmarkId: id, content: html, createdTime: Date.now()});
 
-  const quote = res.right.quote ?? false;
-  let comment = res.right.comment ?? '';
-  let dobackup = false;
-
-  if (quote && comment) {
-    comment = '> ' + comment.replace(/\n/g, '\n> ');
-  }
-
-  let id: number|bigint;
-
-  if (bookmark) {
-    // There's a bookmark already
-    id = bookmark.id;
-
-    const now = Date.now();
-
-    if (bookmark.modifiedTime) {
-      dobackup = (now - bookmark.modifiedTime) > SAVE_BACKUP_THROTTLE_MILLISECONDS;
+      return [200, {}];
     }
-
-    const commentRender = addCommentToBookmark(db, comment, id);
-    const breakStr = '\n';
-    const newline = bookmark.render.indexOf(breakStr);
-    if (newline < 0) {
-      throw new Error('no newline in render ' + id);
-    }
-    // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
-    const newRender = bookmark.render.substring(0, newline + breakStr.length) + commentRender + '\n' +
-                      bookmark.render.slice(newline + breakStr.length);
-    db.prepare(
-          `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
-        .run({render: newRender, renderedTime: now, modifiedTime: now, id: id})
-  } else {
-    // brand new bookmark!
-
-    const url = res.right.url ?? '';
-    const title = res.right.title ?? '';
-    assert(title || url, 'url or title or both non-empty'); // guaranteed above
-
-    dobackup = true;
-    let now = Date.now();
-    const bookmarkRow: Table.bookmarkRow = {
-      userId: -1,
-      url,
-      title,
-      createdTime: now,
-      modifiedTime: now,
-      render: '',        // will be overridden shortly, in `rerenderJustBookmark`
-      renderedTime: now, // ditto
-    };
-    const insertResult =
-        db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
-          values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
-            .run(bookmarkRow)
-
-    id = insertResult.lastInsertRowid;
-    const commentRender = addCommentToBookmark(db, comment, id);
-
-    rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
-  }
-  cacheAllBookmarks(db);
-
-  // handle full-HTML backup
-  const {html} = res.right;
-  if (html && dobackup) {
-    db.prepare(`insert into backup (bookmarkId, content, createdTime) values ($bookmarkId, $content, $createdTime)`)
-        .run({bookmarkId: id, content: html, createdTime: Date.now()});
   }
 
-  return '';
+  return [400, 'no message type matched io-ts specification']
 }
 
 async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
@@ -206,12 +220,14 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
       res.status(400).send('post json');
       return;
     }
-    const err = bodyToBookmark(db, req.body);
-    if (!err) {
-      res.send('thx');
+    const [code, msg] = bodyToBookmark(db, req.body);
+    if (code === 200) {
+      assert(typeof msg === 'object', '200 will send JSON');
+      res.json(msg);
       return;
     }
-    res.status(400).send(err);
+    assert(typeof msg === 'string', 'non-200 must be text');
+    res.status(code).send(msg);
   });
 
   // media
@@ -327,6 +343,17 @@ if (require.main === module) {
     {
       const all: SelectedAll<Table.backupRow> = db.prepare(`select * from backup`).all()
       console.log(all.map(o => o.content.length / 1024 + ' kb'));
+    }
+    {
+      const title = 'TITLE YOU WANT TO DELETE';
+      const res: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark where title=$title`).all({title});
+      if (res.length === 1) {
+        console.log(`sqlite3 yamanote.db
+delete from bookmark where id=${res[0].id};
+delete from comment where bookmarkId=${res[0].id};
+delete from backup where bookmarkId=${res[0].id};
+`);
+      }
     }
   })();
 }
