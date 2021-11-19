@@ -56,7 +56,7 @@ window.onload = () => {
         target.replaceWith(div); // replace the emoji <a> with this
 
         button.onclick = () => {
-          const obj = {id, comment: textarea.value};
+          const obj = {id, comment: textarea.value, _type: 'addCommentOnly'};
           console.log('WILL POST', obj);
           fetch('/bookmark', {method: 'POST', body: JSON.stringify(obj), headers: {'Content-Type': 'application/json'}})
               .then(x => {

@@ -182,6 +182,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
           db.prepare(`select id, render, modifiedTime from bookmark where id=$id`).get({id});
       if (bookmark) {
         fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, id));
+        cacheAllBookmarks(db);
         return [200, {}];
       }
       return [401, 'not authorized'];
