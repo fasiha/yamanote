@@ -7,7 +7,7 @@ import multer from 'multer';
 import assert from 'node:assert';
 import {promisify} from 'util';
 
-import * as Table from './DbTablesV1';
+import * as Table from './DbTablesV2';
 import {
   AddBookmarkOrCommentPayload,
   AddCommentOnlyPayload,
@@ -23,7 +23,7 @@ import {
 } from './pathsInterfaces';
 import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers';
 
-const SCHEMA_VERSION_REQUIRED = 1;
+const SCHEMA_VERSION_REQUIRED = 2;
 
 let ALL_BOOKMARKS = '';
 /**
@@ -46,7 +46,7 @@ export function dbInit(fname: string) {
     s = db.prepare(`select schemaVersion from _yamanote_db_state`);
     const dbState: Selected<Table._yamanote_db_stateRow> = s.get();
     if (!dbState || dbState.schemaVersion !== SCHEMA_VERSION_REQUIRED) {
-      throw new Error('migrations not yet supported');
+      throw new Error('db wrong version: need ' + SCHEMA_VERSION_REQUIRED);
     }
   } else {
     console.log('uninitialized, will create v1 schema');
@@ -57,8 +57,8 @@ export function dbInit(fname: string) {
 }
 
 type MimeContent = Pick<Table.mediaRow, 'mime'|'content'>;
-function getFilename(db: Db, filename: string): MimeContent|undefined {
-  return db.prepare(`select mime, content from media where filename=$filename`).get({filename});
+function getFilename(db: Db, path: string): MimeContent|undefined {
+  return db.prepare(`select mime, content from media where path=$path`).get({filename: path});
 }
 
 function cacheAllBookmarks(db: Db) {
@@ -238,17 +238,17 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
       const ret: Record<string, number> = {};
       const createdTime = Date.now();
       const insertStatement = db.prepare(
-          `insert into media (filename, content, mime, numBytes, createdTime) values ($filename, $content, $mime, $numBytes, $createdTime)`);
+          `insert into media (path, content, mime, numBytes, createdTime) values ($path, $content, $mime, $numBytes, $createdTime)`);
 
       for (const file of files) {
         const media: Table.mediaRow =
-            {filename: file.originalname, mime: file.mimetype, content: file.buffer, numBytes: file.size, createdTime};
+            {path: file.originalname, mime: file.mimetype, content: file.buffer, numBytes: file.size, createdTime};
         try {
           const insert = insertStatement.run(media);
-          ret[media.filename] = insert.changes >= 1 ? 200 : 500;
+          ret[media.path] = insert.changes >= 1 ? 200 : 500;
         } catch (e) {
           if (uniqueConstraintError(e)) {
-            ret[media.filename] = 409;
+            ret[media.path] = 409;
           } else {
             throw e;
           }
@@ -287,7 +287,7 @@ if (require.main === module) {
   (async function main() {
     const db = dbInit('yamanote.db');
     const media: Table.mediaRow = {
-      filename: 'raw.dat',
+      path: 'raw.dat',
       mime: 'text/plain',
       content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
       createdTime: Date.now(),
@@ -295,7 +295,7 @@ if (require.main === module) {
     };
     try {
       db.prepare(
-            `insert into media (filename, content, mime, numBytes, createdTime) values ($filename, $content, $mime, $numBytes, $createdTime)`)
+            `insert into media (path, content, mime, numBytes, createdTime) values ($path, $content, $mime, $numBytes, $createdTime)`)
           .run(media);
     } catch (e) {
       if (!uniqueConstraintError(e)) {
