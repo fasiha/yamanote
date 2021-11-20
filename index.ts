@@ -304,7 +304,7 @@ if (require.main === module) {
       path: 'raw.dat',
       mime: 'text/plain',
       content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
-      createdTime: Date.now(),
+      createdTime: 1,
       numBytes: 6,
     };
     try {
@@ -315,6 +315,7 @@ if (require.main === module) {
       if (!uniqueConstraintError(e)) {
         throw e;
       }
+      console.log('uniqueness check failed, ok!')
     }
     const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
     console.dir(all.map(clean), {depth: null});
@@ -326,8 +327,10 @@ if (require.main === module) {
       const form = new FormData();
       const contentType = "text/plain";
       for (const name of 'a,b,c'.split(',')) {
+        const filename = `file${name}.txt`;
+        db.prepare('delete from media where path=$filename').run({filename});
         const txt = name === 'a' ? 'fileA contents' : name === 'b' ? 'fileBBB' : 'c';
-        form.append('files', Buffer.from(txt), {filename: `file${name}.txt`, contentType, knownLength: txt.length});
+        form.append('files', Buffer.from(txt), {filename, contentType, knownLength: txt.length});
       }
       const url = `http://localhost:${port}${mediaPath({})}`;
       // This is needlessly complicated because I want to test everything with async/await rather than callbacks, sorry
