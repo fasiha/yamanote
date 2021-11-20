@@ -5,6 +5,7 @@ import FormData from 'form-data';
 import {readFileSync} from 'fs';
 import {JSDOM} from 'jsdom';
 import multer from 'multer';
+import fetch from 'node-fetch';
 import assert from 'node:assert';
 import {promisify} from 'util';
 
@@ -204,6 +205,54 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
   return [400, 'no message type matched io-ts specification']
 }
 
+async function downloadImages(db: Db, bookmarkId: number|bigint) {
+  const row: Pick<Table.backupRow, 'original'> =
+      db.prepare<{bookmarkId: number | bigint}>('select original from backup where bookmarkId=$bookmarkId')
+          .get({bookmarkId});
+  if (!row || !row.original) {
+    return;
+  }
+
+  const dom = new JSDOM(row.original);
+
+  const mediaCount = db.prepare<{path: string}>(`select count(*) as count from media where path=$path`);
+  const mediaInsert = db.prepare<Table.mediaRow>(`insert into media
+  (path, mime, content, createdTime, numBytes)
+  values ($path, $mime, $content, $createdTime, $numBytes)`);
+
+  for (const img of dom.window.document.querySelectorAll('img')) {
+    const src = img.src;
+    // override source to point to our mirror
+    img.src = '/media/' + img.src;
+
+    // download if needed
+    const row: {count: number} = mediaCount.get({path: src});
+    if (!row || row.count === 0) {
+      const response = await fetch(src);
+      if (response.ok) {
+        const blob = await response.arrayBuffer();
+        const mime = response.headers.get('content-type');
+        if (!mime) {
+          throw new Error(`${src} has no "content-type"?`);
+        }
+        const media: Table.mediaRow =
+            {path: src, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
+        mediaInsert.run(media);
+        console.log('inserted ' + src);
+
+      } else {
+        console.error('response error ' + response.status + ' ' + response.statusText);
+      }
+    } else {
+      console.log('already saved ' + src);
+    }
+  }
+
+  // with stuff downloaded, update backup.content
+  db.prepare(`update backup set content=$content where bookmarkId=$bookmarkId`)
+      .run({content: dom.serialize(), bookmarkId});
+}
+
 async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
@@ -240,11 +289,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     if (backup) {
       // prevent the browser from going anywhere to request data. This disables external JS, CSS, images, etc.
       res.set({'Content-Security-Policy': `default-src 'self'`});
-
-      const dom = new JSDOM(backup.content);
-      const imgs = dom.window.document.querySelectorAll('img');
-      for (const img of imgs) { img.src = '/media/' + img.src; }
-      res.send(dom.serialize());
+      res.send(backup.content);
     } else {
       res.status(409).send('not authorized');
     }
@@ -358,6 +403,9 @@ delete from comment where bookmarkId=${res[0].id};
 delete from backup where bookmarkId=${res[0].id};
 `);
       }
+    }
+    if (1) {
+      await downloadImages(db, 11);
     }
   })();
 }
