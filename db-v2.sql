@@ -36,6 +36,7 @@ create table backup (
   id INTEGER PRIMARY KEY,
   bookmarkId integer not null,
   content text not null,
+  original text not null,
   createdTime float not null
 );
 create table media (

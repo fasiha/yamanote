@@ -26,6 +26,16 @@ function up(a: Db, b: Db) {
       const st =
           b.prepare(`insert into ${table} (${newkeys.join(',')}) values (${newkeys.map(s => '$' + s).join(',')})`);
       for (const x of all) { st.run({...x, path: x.filename}); }
+    } else if (table === 'backup') {
+      const all: Record<string, string>[] = a.prepare(`select * from ${table}`).all();
+      if (all.length === 0) {
+        continue;
+      }
+
+      const keys = Object.keys(all[0]);
+      keys.push('original')
+      const st = b.prepare(`insert into ${table} (${keys.join(',')}) values (${keys.map(s => '$' + s).join(',')})`);
+      for (const x of all) { st.run({...x, original: x.content}); }
     } else {
       const all: Record<string, string>[] = a.prepare(`select * from ${table}`).all();
       if (all.length === 0) {

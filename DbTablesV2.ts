@@ -9,6 +9,7 @@ export interface backupRow {
   'id'?: number|bigint | null;
   'bookmarkId': number|bigint;
   'content': string;
+  'original': string;
   'createdTime': number;
 }
 export interface bookmarkRow {

@@ -192,9 +192,10 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
     const res = AddHtmlPayload.decode(body);
     if (res._tag === 'Right') {
       const {id, html} = res.right;
-      db.prepare(`insert into backup (bookmarkId, content, createdTime)
-      values ($bookmarkId, $content, $createdTime)`)
-          .run({bookmarkId: id, content: html, createdTime: Date.now()});
+      const backup: Table.backupRow = {bookmarkId: id, content: html, original: html, createdTime: Date.now()};
+      db.prepare(`insert into backup (bookmarkId, content, original, createdTime)
+      values ($bookmarkId, $content, $original, $createdTime)`)
+          .run(backup);
 
       return [200, {}];
     }
