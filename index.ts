@@ -8,7 +8,7 @@ import multer from 'multer';
 import assert from 'node:assert';
 import {promisify} from 'util';
 
-import * as Table from './DbTables';
+import * as Table from './DbTablesV1';
 import {
   AddBookmarkOrCommentPayload,
   AddCommentOnlyPayload,

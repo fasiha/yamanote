@@ -4,7 +4,7 @@
     "filename": "./__empty.db"
   },
   "interfaceNameFormat": "${table}Row",
-  "filename": "DbTables",
+  "filename": "DbTablesV1",
   "typeMap": {
     "Buffer|string|Uint8Array": [
       "blob"

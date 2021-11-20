@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "prettysql": "sql-formatter -o db-v1.sql  db-v1.sql",
-    "schema": "rm -f __empty.db && sqlite3 __empty.db < db-v1.sql && npx @rmp135/sql-ts -c sqlite.json --config sqlite.json && rm __empty.db",
+    "schema": "rm -f __empty.db && sqlite3 __empty.db < db-v1.sql && npx @rmp135/sql-ts -c sqlite-v1.json --config sqlite-v1.json && rm __empty.db",
     "build": "tsc -p .",
     "serve": "npm run build && node index.js",
     "watch": "nodemon -L index.js",

@@ -1,7 +1,7 @@
 import {encode} from 'html-entities';
 import {URL} from 'url';
 
-import * as Table from './DbTables';
+import * as Table from './DbTablesV1';
 import {Db, Selected} from "./pathsInterfaces";
 
 export function rerenderComment(db: Db,
