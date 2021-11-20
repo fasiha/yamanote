@@ -158,6 +158,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
         } else {
           // new bookmark
           id = createNewBookmark(db, url, title, comment);
+          downloadImages(db, id);
         }
         cacheAllBookmarks(db);
 
@@ -428,6 +429,7 @@ delete from backup where bookmarkId=${res[0].id};
     if (0) {
       const ids: {id: number|bigint}[] = db.prepare('select id from bookmark').all()
       for (const {id} of ids) { await downloadImages(db, id); }
+      console.log('done downloading all images');
     }
   })();
 }
