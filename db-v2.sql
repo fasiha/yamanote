@@ -2,7 +2,7 @@ create table _yamanote_db_state (schemaVersion integer not null);
 insert into
   _yamanote_db_state (schemaVersion)
 values
-  (1);
+  (2);
 create table user (
   id INTEGER PRIMARY KEY,
   name text unique not null,
@@ -40,12 +40,13 @@ create table backup (
 );
 create table media (
   id INTEGER PRIMARY KEY,
-  filename text UNIQUE not null,
+  path text not null,
+  -- url or filename
   mime text not null,
   -- TODO: allow same checksum, multiple filenames
   -- TODO: prevent users from seeing other users' media by knowing the id/checksum
   content blob not null,
   createdTime float not null,
-  numBytes integer not null -- checksumValue text not null,
-  -- checksumAlgo text not null
+  numBytes integer not null,
+  unique (path, createdTime)
 );
