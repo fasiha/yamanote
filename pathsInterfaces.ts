@@ -1,12 +1,11 @@
 import sqlite3 from 'better-sqlite3';
 import * as t from 'io-ts';
-import {Params, path, Path} from 'static-path';
+import {path} from 'static-path';
 
-export type paramify<T> =
-    T extends Path<infer X>? Params<X>: never; // https://github.com/garybernhardt/static-path/issues/5
 export const filenamePath = path('/media/:filename');
 export const mediaPath = path('/media');
 export const bookmarkPath = path('/bookmark');
+export const backupPath = path('/backup/:bookmarkId');
 export type Db = ReturnType<typeof sqlite3>;
 
 /**

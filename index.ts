@@ -13,11 +13,11 @@ import {
   AddCommentOnlyPayload,
   AddHtmlPayload,
   AskForHtmlPayload,
+  backupPath,
   bookmarkPath,
   Db,
   filenamePath,
   mediaPath,
-  paramify,
   Selected,
   SelectedAll
 } from './pathsInterfaces';
@@ -231,6 +231,20 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     res.status(code).send(msg);
   });
 
+  // backups
+  app.get(backupPath.pattern, (req, res) => {
+    const backup: Pick<Table.backupRow, 'content'>|undefined =
+        db.prepare(`select content from backup where bookmarkId=$bookmarkId`).get({bookmarkId: req.params.bookmarkId});
+    if (backup) {
+      // prevent the browser from going anywhere to request data. This disables JS, CSS, images, etc.
+      res.set({'Content-Security-Policy': `default-src 'self'`});
+
+      res.send(backup.content);
+    } else {
+      res.status(409).send('not authorized');
+    }
+  });
+
   // media
   app.post(mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
     const files = req.files;
@@ -260,7 +274,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     res.status(400).send('need files');
   });
   app.get(filenamePath.pattern, (req, res) => {
-    const filename = (req.params as paramify<typeof filenamePath>).filename;
+    const filename = req.params.filename;
     if (filename && typeof filename === 'string') {
       const got = getFilename(db, filename);
       if (got) {
