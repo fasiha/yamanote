@@ -23,7 +23,6 @@
     "@types/multer": "^1.4.7",
     "@types/node": "^16.9.2",
     "form-data": "^4.0.0",
-    "jsdom": "^18.1.0",
     "knex": "^0.95.11",
     "nodemon": "^2.0.15",
     "sql-formatter": "^4.0.2",
@@ -40,6 +39,7 @@
     "fp-ts": "^2.11.2",
     "html-entities": "^2.3.2",
     "io-ts": "^2.2.16",
+    "jsdom": "^18.1.0",
     "multer": "^1.4.3",
     "node-fetch": "^3.1.0",
     "static-path": "^0.0.4"

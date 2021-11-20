@@ -3,6 +3,7 @@ import bodyParser from 'body-parser';
 import * as express from 'express';
 import FormData from 'form-data';
 import {readFileSync} from 'fs';
+import {JSDOM} from 'jsdom';
 import multer from 'multer';
 import assert from 'node:assert';
 import {promisify} from 'util';
@@ -58,7 +59,7 @@ export function dbInit(fname: string) {
 
 type MimeContent = Pick<Table.mediaRow, 'mime'|'content'>;
 function getFilename(db: Db, path: string): MimeContent|undefined {
-  return db.prepare(`select mime, content from media where path=$path`).get({filename: path});
+  return db.prepare(`select mime, content from media where path=$path`).get({path});
 }
 
 function cacheAllBookmarks(db: Db) {
@@ -236,10 +237,13 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     const backup: Pick<Table.backupRow, 'content'>|undefined =
         db.prepare(`select content from backup where bookmarkId=$bookmarkId`).get({bookmarkId: req.params.bookmarkId});
     if (backup) {
-      // prevent the browser from going anywhere to request data. This disables JS, CSS, images, etc.
+      // prevent the browser from going anywhere to request data. This disables external JS, CSS, images, etc.
       res.set({'Content-Security-Policy': `default-src 'self'`});
 
-      res.send(backup.content);
+      const dom = new JSDOM(backup.content);
+      const imgs = dom.window.document.querySelectorAll('img');
+      for (const img of imgs) { img.src = '/media/' + img.src; }
+      res.send(dom.serialize());
     } else {
       res.status(409).send('not authorized');
     }
@@ -273,17 +277,17 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     }
     res.status(400).send('need files');
   });
-  app.get(filenamePath.pattern, (req, res) => {
-    const filename = req.params.filename;
-    if (filename && typeof filename === 'string') {
-      const got = getFilename(db, filename);
-      if (got) {
-        res.contentType(got.mime);
-        res.send(got.content);
-        return;
-      }
+  app.get(/^\/media\//, (req, res) => {
+    const needle = '/media/';
+    const filename = req.url.slice(req.url.indexOf(needle) + needle.length);
+    // console.log(`media request: filename=${filename}, url=${req.url}`);
+    const got = getFilename(db, filename);
+    if (got) {
+      res.contentType(got.mime);
+      res.send(got.content);
+      return;
     }
-    res.status(404).send('nonesuch');
+    res.status(404).send();
   });
   await new Promise((resolve, reject) => app.listen(port, () => resolve(1)));
   console.log(`Example app listening at http://localhost:${port}`);
@@ -300,30 +304,11 @@ if (require.main === module) {
 
   (async function main() {
     const db = dbInit('yamanote.db');
-    const media: Table.mediaRow = {
-      path: 'raw.dat',
-      mime: 'text/plain',
-      content: Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]),
-      createdTime: 1,
-      numBytes: 6,
-    };
-    try {
-      db.prepare(
-            `insert into media (path, content, mime, numBytes, createdTime) values ($path, $content, $mime, $numBytes, $createdTime)`)
-          .run(media);
-    } catch (e) {
-      if (!uniqueConstraintError(e)) {
-        throw e;
-      }
-      console.log('uniqueness check failed, ok!')
-    }
-    const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
-    console.dir(all.map(clean), {depth: null});
 
     const port = 3456;
     const app = await startServer(db, port);
 
-    {
+    if (0) {
       const form = new FormData();
       const contentType = "text/plain";
       for (const name of 'a,b,c'.split(',')) {
@@ -358,7 +343,7 @@ if (require.main === module) {
       for (const x of all) { rerenderJustBookmark(db, x); }
       cacheAllBookmarks(db);
     }
-    {
+    if (0) {
       const all: SelectedAll<Table.backupRow> = db.prepare(`select * from backup`).all()
       console.log(all.map(o => o.content.length / 1024 + ' kb'));
     }
