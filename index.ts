@@ -209,7 +209,9 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
   const row: Pick<Table.backupRow, 'original'> =
       db.prepare<{bookmarkId: number | bigint}>('select original from backup where bookmarkId=$bookmarkId')
           .get({bookmarkId});
-  if (!row || !row.original) {
+  const bookmark: Pick<Table.bookmarkRow, 'url'> =
+      db.prepare<{id: number | bigint}>('select url from bookmark where id=$id').get({id: bookmarkId});
+  if (!row || !row.original || !bookmark || !bookmark.url) {
     return;
   }
 
@@ -221,30 +223,49 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
   values ($path, $mime, $content, $createdTime, $numBytes)`);
 
   for (const img of dom.window.document.querySelectorAll('img')) {
-    const src = img.src;
+    let src = img.src;
+
+    // NO source? Data URL? Skip.
+    if (!src || src.startsWith('data:')) {
+      continue;
+    }
+
+    // relative URL? Fix.
+    try {
+      new URL(src);
+      // this will throw if src isn't absolute
+    } catch (e) {
+      if ((e as any).code === 'ERR_INVALID_URL') {
+        // Save it as the absolute URL so different sites with same relative URLs will be fine
+        const u = new URL(src, bookmark.url);
+        src = u.href;
+      } else {
+        throw e;
+      }
+    }
+
     // override source to point to our mirror
-    img.src = '/media/' + img.src;
+    img.src = '/media/' + src;
 
     // download if needed
     const row: {count: number} = mediaCount.get({path: src});
     if (!row || row.count === 0) {
+      console.log('getting ' + src);
+
       const response = await fetch(src);
       if (response.ok) {
         const blob = await response.arrayBuffer();
         const mime = response.headers.get('content-type');
         if (!mime) {
-          throw new Error(`${src} has no "content-type"?`);
+          // likely a tracking pixel or something stupid/evil
+          continue;
         }
         const media: Table.mediaRow =
             {path: src, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
         mediaInsert.run(media);
-        console.log('inserted ' + src);
-
       } else {
-        console.error('response error ' + response.status + ' ' + response.statusText);
+        console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, url=${src}, bookmark=${bookmarkId}`)
       }
-    } else {
-      console.log('already saved ' + src);
     }
   }
 
@@ -404,8 +425,9 @@ delete from backup where bookmarkId=${res[0].id};
 `);
       }
     }
-    if (1) {
-      await downloadImages(db, 11);
+    if (0) {
+      const ids: {id: number|bigint}[] = db.prepare('select id from bookmark').all()
+      for (const {id} of ids) { await downloadImages(db, id); }
     }
   })();
 }
