@@ -63,7 +63,7 @@ export function dbInit(fname: string) {
 
 type MimeContent = Pick<Table.mediaRow, 'mime'|'content'>;
 function getFilename(db: Db, path: string): MimeContent|undefined {
-  return db.prepare(`select mime, content from media where path=$path`).get({path});
+  return db.prepare(`select mime, content from media where path=$path order by createdTime desc limit 1`).get({path});
 }
 
 function cacheAllBookmarks(db: Db) {
