@@ -28,10 +28,13 @@ import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark}
 const SCHEMA_VERSION_REQUIRED = 2;
 
 let ALL_BOOKMARKS = '';
+
 /**
  * Save a new backup after a ~month
  */
 const SAVE_BACKUP_THROTTLE_MILLISECONDS = 3600e3 * 24 * 30;
+const USER_AGENT = `Yamanote (contact info at https://github.com/fasiha/yamanote)`;
+const [MIN_WAIT, MAX_WAIT] = [500, 2000]; // milliseconds between network requests
 
 function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
@@ -206,6 +209,49 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
   return [400, 'no message type matched io-ts specification']
 }
 
+function fixUrl(url: string, parentUrl: string): string|undefined {
+  // NO source? Data URL? Skip.
+  if (!url || url.startsWith('data:')) {
+    return undefined;
+  }
+
+  try {
+    new URL(url);
+    // this will throw if url isn't absolute
+    return url; // url is fine as is
+  } catch (e) {
+    if ((e as any).code === 'ERR_INVALID_URL') {
+      // Save it as the absolute URL so different sites with same relative URLs will be fine
+      const u = new URL(url, parentUrl);
+      return u.href;
+    } else {
+      throw e;
+    }
+  }
+}
+
+function processSrcset(srcset: string, parentUrl: string) {
+  if (!srcset) {
+    return undefined;
+  }
+
+  const list = srcset.split(/\s*,\s*/).map(s => s.split(/\s+/));
+  const urls = [];
+  for (const entry of list) {
+    const url = fixUrl(entry[0], parentUrl);
+    if (!url) {
+      continue;
+    }
+    urls.push(url);             // we'll download this original URL
+    entry[0] = '/media/' + url; // we'll replace the html with this
+  }
+  return { urls, srcsetNew: list.map(v => v.join(' ')).join(',') }
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(() => resolve(), milliseconds));
+}
+
 async function downloadImages(db: Db, bookmarkId: number|bigint) {
   const row: Pick<Table.backupRow, 'original'> =
       db.prepare<{bookmarkId: number | bigint}>('select original from backup where bookmarkId=$bookmarkId')
@@ -223,49 +269,47 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
   (path, mime, content, createdTime, numBytes)
   values ($path, $mime, $content, $createdTime, $numBytes)`);
 
+  const init = {'headers': {'User-Agent': USER_AGENT}};
+
   for (const img of dom.window.document.querySelectorAll('img')) {
-    let src = img.src;
-
-    // NO source? Data URL? Skip.
-    if (!src || src.startsWith('data:')) {
+    const src = fixUrl(img.src, bookmark.url);
+    if (!src) {
       continue;
-    }
-
-    // relative URL? Fix.
-    try {
-      new URL(src);
-      // this will throw if src isn't absolute
-    } catch (e) {
-      if ((e as any).code === 'ERR_INVALID_URL') {
-        // Save it as the absolute URL so different sites with same relative URLs will be fine
-        const u = new URL(src, bookmark.url);
-        src = u.href;
-      } else {
-        throw e;
-      }
     }
 
     // override source to point to our mirror
     img.src = '/media/' + src;
 
-    // download if needed
-    const row: {count: number} = mediaCount.get({path: src});
-    if (!row || row.count === 0) {
-      console.log('getting ' + src);
+    // handle srcset
+    const urls = [src];
+    const srcset = processSrcset(img.srcset, bookmark.url);
+    if (srcset) {
+      urls.push(...srcset.urls);
+      img.srcset = srcset.srcsetNew;
+    }
 
-      const response = await fetch(src);
-      if (response.ok) {
-        const blob = await response.arrayBuffer();
-        const mime = response.headers.get('content-type');
-        if (!mime) {
-          // likely a tracking pixel or something stupid/evil
-          continue;
+    // download if needed
+    for (const url of urls) {
+      const row: {count: number} = mediaCount.get({path: url});
+      if (!row || row.count === 0) {
+        console.log(`bookmarkId=${bookmarkId}, ${url}`);
+
+        const response = await fetch(url, init);
+        if (response.ok) {
+          const blob = await response.arrayBuffer();
+          const mime = response.headers.get('content-type');
+          if (!mime) {
+            // likely a tracking pixel or something stupid/evil
+            continue;
+          }
+          const media: Table.mediaRow =
+              {path: url, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
+          mediaInsert.run(media);
+          await sleep(MIN_WAIT + Math.random() * (MAX_WAIT - MIN_WAIT))
+        } else {
+          console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, bookmarkId=${bookmarkId}, url=${
+              src}, bookmark=${bookmarkId}`)
         }
-        const media: Table.mediaRow =
-            {path: src, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
-        mediaInsert.run(media);
-      } else {
-        console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, url=${src}, bookmark=${bookmarkId}`)
       }
     }
   }
