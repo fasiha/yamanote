@@ -271,6 +271,16 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
 
   const init = {'headers': {'User-Agent': USER_AGENT}};
 
+  for (const video of dom.window.document.querySelectorAll('video')) {
+    const src = fixUrl(video.src, bookmark.url);
+    if (!src) {
+      continue;
+    }
+    video.src = '/media/' + src;
+    // TODO call youtube-dl to download video
+    console.log(`bookmarkId=${bookmarkId}, youtube-dl ${src}, and upload result`);
+  }
+
   for (const img of dom.window.document.querySelectorAll('img')) {
     const src = fixUrl(img.src, bookmark.url);
     if (!src) {
