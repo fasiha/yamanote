@@ -161,7 +161,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
         } else {
           // new bookmark
           id = createNewBookmark(db, url, title, comment);
-          downloadImages(db, id);
+          downloadImagesVideos(db, id);
         }
         cacheAllBookmarks(db);
 
@@ -252,7 +252,36 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(() => resolve(), milliseconds));
 }
 
-async function downloadImages(db: Db, bookmarkId: number|bigint) {
+async function saveUrl(db: Db, url: string, info = '') {
+  const mediaCount = db.prepare<{path: string}>(`select count(*) as count from media where path=$path`);
+  const mediaInsert = db.prepare<Table.mediaRow>(`insert into media
+  (path, mime, content, createdTime, numBytes)
+  values ($path, $mime, $content, $createdTime, $numBytes)`);
+  const init = {'headers': {'User-Agent': USER_AGENT}};
+
+  const row: {count: number} = mediaCount.get({path: url});
+  if (!row || row.count === 0) {
+    console.log(`${info}url=${url}`);
+
+    const response = await fetch(url, init);
+    if (response.ok) {
+      const blob = await response.arrayBuffer();
+      const mime = response.headers.get('content-type');
+      if (!mime) {
+        // likely a tracking pixel or something stupid/evil
+        return;
+      }
+      const media: Table
+          .mediaRow = {path: url, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
+      mediaInsert.run(media);
+      await sleep(MIN_WAIT + Math.random() * (MAX_WAIT - MIN_WAIT))
+    } else {
+      console.error(`${info}RESPONSE ERROR ${response.status} ${response.statusText}, url=${url}`)
+    }
+  }
+}
+
+async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
   const row: Pick<Table.backupRow, 'original'> =
       db.prepare<{bookmarkId: number | bigint}>('select original from backup where bookmarkId=$bookmarkId')
           .get({bookmarkId});
@@ -263,13 +292,7 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
   }
 
   const dom = new JSDOM(row.original);
-
-  const mediaCount = db.prepare<{path: string}>(`select count(*) as count from media where path=$path`);
-  const mediaInsert = db.prepare<Table.mediaRow>(`insert into media
-  (path, mime, content, createdTime, numBytes)
-  values ($path, $mime, $content, $createdTime, $numBytes)`);
-
-  const init = {'headers': {'User-Agent': USER_AGENT}};
+  const infoStr = `bookmark=${bookmarkId} `;
 
   for (const video of dom.window.document.querySelectorAll('video')) {
     const src = fixUrl(video.src, bookmark.url);
@@ -277,6 +300,11 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
       continue;
     }
     video.src = '/media/' + src;
+    if (video.poster) {
+      const url = video.poster;
+      await saveUrl(db, url, infoStr)
+      video.poster = '/media/' + url;
+    }
     // TODO call youtube-dl to download video
     console.log(`bookmarkId=${bookmarkId}, youtube-dl ${src}, and upload result`);
   }
@@ -287,40 +315,18 @@ async function downloadImages(db: Db, bookmarkId: number|bigint) {
       continue;
     }
 
+    // download image src
+    await saveUrl(db, src, infoStr);
     // override source to point to our mirror
     img.src = '/media/' + src;
 
     // handle srcset
-    const urls = [src];
     const srcset = processSrcset(img.srcset, bookmark.url);
     if (srcset) {
-      urls.push(...srcset.urls);
+      // download
+      for (const url of srcset.urls) { await saveUrl(db, url, infoStr); }
+      // override DOM node
       img.srcset = srcset.srcsetNew;
-    }
-
-    // download if needed
-    for (const url of urls) {
-      const row: {count: number} = mediaCount.get({path: url});
-      if (!row || row.count === 0) {
-        console.log(`bookmarkId=${bookmarkId}, ${url}`);
-
-        const response = await fetch(url, init);
-        if (response.ok) {
-          const blob = await response.arrayBuffer();
-          const mime = response.headers.get('content-type');
-          if (!mime) {
-            // likely a tracking pixel or something stupid/evil
-            continue;
-          }
-          const media: Table.mediaRow =
-              {path: url, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
-          mediaInsert.run(media);
-          await sleep(MIN_WAIT + Math.random() * (MAX_WAIT - MIN_WAIT))
-        } else {
-          console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, bookmarkId=${bookmarkId}, url=${
-              src}, bookmark=${bookmarkId}`)
-        }
-      }
     }
   }
 
@@ -484,7 +490,7 @@ delete from backup where bookmarkId=${res[0].id};
     }
     if (0) {
       const ids: {id: number|bigint}[] = db.prepare('select id from bookmark').all()
-      for (const {id} of ids) { await downloadImages(db, id); }
+      for (const {id} of ids) { await downloadImagesVideos(db, id); }
       console.log('done downloading all images');
     }
   })();
