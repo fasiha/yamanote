@@ -361,7 +361,9 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   // backups
   app.get(backupPath.pattern, (req, res) => {
     const backup: Pick<Table.backupRow, 'content'>|undefined =
-        db.prepare(`select content from backup where bookmarkId=$bookmarkId`).get({bookmarkId: req.params.bookmarkId});
+        db.prepare(`select content from backup where bookmarkId=$bookmarkId order by createdTime desc limit 1`).get({
+          bookmarkId: req.params.bookmarkId
+        });
     if (backup) {
       // prevent the browser from going anywhere to request data. This disables external JS, CSS, images, etc.
       res.set({'Content-Security-Policy': `default-src 'self'`});
