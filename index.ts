@@ -201,6 +201,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
       db.prepare(`insert into backup (bookmarkId, content, original, createdTime)
       values ($bookmarkId, $content, $original, $createdTime)`)
           .run(backup);
+      downloadImagesVideos(db, id);
 
       return [200, {}];
     }
