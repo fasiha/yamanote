@@ -5,7 +5,7 @@ function columns(db: Db, table: string): string[] {
   return db.prepare<{table: string}>(`SELECT name FROM PRAGMA_TABLE_INFO($table);`).all({table}).map(o => o.name);
 }
 
-export function makeTriggers(db: Db, table: string, ignoreColumns: Set<string> = new Set()) {
+export function makeBackupTriggers(db: Db, table: string, ignoreColumns: Set<string> = new Set()) {
   // Largely following https://blog.budgetwithbuckets.com/2018/08/27/sqlite-changelog.html
   const sql = `
 -- Change log table
@@ -90,13 +90,4 @@ END;
                   .replace(/\$JSON_ARRAYS_OLD_NEW/g, JSON_ARRAYS_OLD_NEW)
                   .replace(/\$JSON_ARRAYS_OLD_NULL/g, JSON_ARRAYS_OLD_NULL);
   db.exec(ret);
-}
-
-if (require.main === module) {
-  const db = sqlite3('yamanote.db');
-  makeTriggers(db, 'backup', new Set(['content']));
-  const ignore = new Set(['render', 'renderedTime'])
-  makeTriggers(db, 'bookmark', ignore);
-  makeTriggers(db, 'comment', ignore);
-  makeTriggers(db, 'media', ignore);
 }

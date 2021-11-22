@@ -10,6 +10,7 @@ import assert from 'node:assert';
 import {promisify} from 'util';
 
 import * as Table from './DbTablesV2';
+import {makeBackupTriggers} from './makeBackupTriggers';
 import {
   AddBookmarkOrCommentPayload,
   AddCommentOnlyPayload,
@@ -61,6 +62,14 @@ export function dbInit(fname: string) {
     console.log('uninitialized, will create schema');
     db.exec(readFileSync('db-v2.sql', 'utf8'));
     dbVersionCheck(db);
+  }
+  {
+    // create (if needed) backup table and triggers
+    makeBackupTriggers(db, 'media');
+    makeBackupTriggers(db, 'backup', new Set(['content']));
+    const ignore = new Set(['render', 'renderedTime'])
+    makeBackupTriggers(db, 'bookmark', ignore);
+    makeBackupTriggers(db, 'comment', ignore);
   }
   cacheAllBookmarks(db);
   return db;
