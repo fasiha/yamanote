@@ -60,8 +60,10 @@ export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNu
   } else if (title) {
     header = encodeTitle(title);
   }
-  header += ` <a href="#${anchor}" class="emojilink">🔗</a>`;
-  header += ` <a id="add-comment-button-${id}" href="#" class="emojilink add-comment-button">💌</a>`;
+  header += ` <a title="Link to here" href="#${anchor}" class="emojilink">🔗</a>`;
+  header +=
+      ` <a title="Add a comment" id="add-comment-button-${id}" href="#" class="emojilink add-comment-button">💌</a>`;
+  header += ` <a title="See raw snapshot" href="/backup/${id}" class="emojilink">💁</a>`;
 
   let commentsRender = '';
   if (!preexistingRenders) {
