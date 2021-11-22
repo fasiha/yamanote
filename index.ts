@@ -324,6 +324,18 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
     console.log(`bookmarkId=${bookmarkId}, youtube-dl ${src}, and upload result`);
   }
 
+  for (const source of dom.window.document.querySelectorAll('source')) {
+    if (source.srcset) {
+      const srcset = processSrcset(source.srcset, bookmark.url);
+      if (srcset) {
+        // download
+        for (const url of srcset.urls) { await saveUrl(db, url, infoStr); }
+        // override DOM node
+        source.srcset = srcset.srcsetNew;
+      }
+    }
+  }
+
   for (const img of dom.window.document.querySelectorAll('img')) {
     const src = fixUrl(img.src, bookmark.url);
     if (!src) {
