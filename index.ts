@@ -161,7 +161,6 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
         } else {
           // new bookmark
           id = createNewBookmark(db, url, title, comment);
-          downloadImagesVideos(db, id);
         }
         cacheAllBookmarks(db);
 
@@ -169,6 +168,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
           db.prepare(`insert into backup (bookmarkId, content, createdTime)
                 values ($bookmarkId, $content, $createdTime)`)
               .run({bookmarkId: id, content: html, createdTime: Date.now()});
+          downloadImagesVideos(db, id);
         }
         const reply: AskForHtmlPayload = {id, htmlWanted: askForHtml};
 
