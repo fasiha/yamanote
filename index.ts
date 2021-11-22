@@ -40,6 +40,14 @@ function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
 }
 
+function dbVersionCheck(db: Db) {
+  const s = db.prepare(`select schemaVersion from _yamanote_db_state`);
+  const dbState: Selected<Table._yamanote_db_stateRow> = s.get();
+  if (dbState?.schemaVersion !== SCHEMA_VERSION_REQUIRED) {
+    throw new Error('db wrong version: need ' + SCHEMA_VERSION_REQUIRED);
+  }
+}
+
 export function dbInit(fname: string) {
   const db = sqlite3(fname);
   db.pragma('journal_mode = WAL'); // https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
@@ -48,14 +56,11 @@ export function dbInit(fname: string) {
 
   if (tableThere) {
     // ensure it's the correct version, else bail; implement up/down migration later
-    s = db.prepare(`select schemaVersion from _yamanote_db_state`);
-    const dbState: Selected<Table._yamanote_db_stateRow> = s.get();
-    if (!dbState || dbState.schemaVersion !== SCHEMA_VERSION_REQUIRED) {
-      throw new Error('db wrong version: need ' + SCHEMA_VERSION_REQUIRED);
-    }
+    dbVersionCheck(db);
   } else {
-    console.log('uninitialized, will create v1 schema');
-    db.exec(readFileSync('db-v1.sql', 'utf8'));
+    console.log('uninitialized, will create schema');
+    db.exec(readFileSync('db-v2.sql', 'utf8'));
+    dbVersionCheck(db);
   }
   cacheAllBookmarks(db);
   return db;
