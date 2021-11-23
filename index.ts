@@ -18,6 +18,7 @@ import {
   AskForHtmlPayload,
   backupPath,
   bookmarkPath,
+  commentPath,
   Db,
   filenamePath,
   mediaPath,
@@ -446,6 +447,32 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     }
     res.status(404).send();
   });
+
+  // comments (a lot of comment-related stuff is handled under bookmarks above though, stuff where you don't know the
+  // comment ID)
+  app.put(commentPath.pattern, function commentPut(req, res) {
+    const commentId = parseInt(req.params.commentId);
+    const {content} = req.body;
+    if (isFinite(commentId) && typeof content === 'string') {
+      // TODO: check authorization
+      const row: {bookmarkId: number} =
+          db.prepare<{id: number}>(`select bookmarkId from comment where id=$id`).get({id: commentId});
+      if (row && row.bookmarkId >= 0) { // sqlite row IDs start at 1 by the way
+        db.prepare<{content: string, modifiedTime: number, id: number}>(
+              `update comment set content=$content, modifiedTime=$modifiedTime where id=$id`)
+            .run({content, modifiedTime: Date.now(), id: commentId});
+        rerenderComment(db, commentId);
+        rerenderJustBookmark(db, row.bookmarkId);
+        cacheAllBookmarks(db);
+        res.status(200).send();
+        return;
+      } else {
+        res.status(401).send();
+      }
+    }
+    res.status(400).send();
+  });
+
   await new Promise((resolve, reject) => app.listen(port, () => resolve(1)));
   console.log(`Example app listening at http://localhost:${port}`);
   return app;

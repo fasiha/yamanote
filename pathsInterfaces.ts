@@ -6,6 +6,7 @@ export const filenamePath = path('/media/:filename');
 export const mediaPath = path('/media');
 export const bookmarkPath = path('/bookmark');
 export const backupPath = path('/backup/:bookmarkId');
+export const commentPath = path('/comment/:commentId');
 export type Db = ReturnType<typeof sqlite3>;
 
 /**

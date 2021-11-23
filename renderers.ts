@@ -23,8 +23,10 @@ export function rerenderComment(db: Db,
     timestamp += ` → ${mod}`;
   }
 
-  const render =
-      `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre> ${timestamp}</div>`;
+  const editLink = ` <a title="Edit comment" id="edit-comment-button-${
+      id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
+  const render = `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre> ${
+      timestamp}${editLink}</div>`;
   db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
       .run({id, render, renderedTime: Date.now()});
   return render;
@@ -61,8 +63,8 @@ export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNu
     header = encodeTitle(title);
   }
   header += ` <a title="Link to here" href="#${anchor}" class="emojilink">🔗</a>`;
-  header +=
-      ` <a title="Add a comment" id="add-comment-button-${id}" href="#" class="emojilink add-comment-button">💌</a>`;
+  header += ` <a title="Add a comment" id="add-comment-button-${
+      id}" href="#" class="emojilink add-comment-button comment-button">💌</a>`;
   header += ` <a title="See raw snapshot" href="/backup/${id}" class="emojilink">💁</a>`;
 
   let commentsRender = '';
