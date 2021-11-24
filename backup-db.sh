@@ -1,4 +1,4 @@
 #!/bin/sh
 mkdir -p backups
-tar czf backups/yamanote-$(date +%s).tar.gz yamanote.db*
+tar czf backups/yamanote-$(date +%s).tar.gz yamanote-v*.db*
 
