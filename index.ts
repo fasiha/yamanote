@@ -1,15 +1,14 @@
 import sqlite3 from 'better-sqlite3';
 import bodyParser from 'body-parser';
+import {createHash} from 'crypto';
 import * as express from 'express';
-import FormData from 'form-data';
 import {readFileSync} from 'fs';
 import {JSDOM} from 'jsdom';
 import multer from 'multer';
 import fetch from 'node-fetch';
 import assert from 'node:assert';
-import {promisify} from 'util';
 
-import * as Table from './DbTablesV2';
+import * as Table from './DbTablesV3';
 import {makeBackupTriggers} from './makeBackupTriggers';
 import {
   AddBookmarkOrCommentPayload,
@@ -20,14 +19,14 @@ import {
   bookmarkPath,
   commentPath,
   Db,
-  filenamePath,
   mediaPath,
   Selected,
   SelectedAll
 } from './pathsInterfaces';
 import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers';
 
-const SCHEMA_VERSION_REQUIRED = 2;
+const SCHEMA_VERSION_REQUIRED = 3;
+const HASH_ALGORITHM = 'sha256';
 
 let ALL_BOOKMARKS = '';
 
@@ -38,7 +37,7 @@ const SAVE_BACKUP_THROTTLE_MILLISECONDS = 3600e3 * 24 * 30;
 const USER_AGENT = `Yamanote (contact info at https://github.com/fasiha/yamanote)`;
 const [MIN_WAIT, MAX_WAIT] = [500, 2000]; // milliseconds between network requests
 
-function uniqueConstraintError(e: unknown): boolean {
+export function uniqueConstraintError(e: unknown): boolean {
   return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
 }
 
@@ -61,7 +60,7 @@ export function dbInit(fname: string) {
     dbVersionCheck(db);
   } else {
     console.log('uninitialized, will create schema');
-    db.exec(readFileSync('db-v2.sql', 'utf8'));
+    db.exec(readFileSync(`db-v${SCHEMA_VERSION_REQUIRED}.sql`, 'utf8'));
     dbVersionCheck(db);
   }
   {
@@ -74,11 +73,6 @@ export function dbInit(fname: string) {
   }
   cacheAllBookmarks(db);
   return db;
-}
-
-type MimeContent = Pick<Table.mediaRow, 'mime'|'content'>;
-function getFilename(db: Db, path: string): MimeContent|undefined {
-  return db.prepare(`select mime, content from media where path=$path order by createdTime desc limit 1`).get({path});
 }
 
 function cacheAllBookmarks(db: Db) {
@@ -246,7 +240,9 @@ function fixUrl(url: string, parentUrl: string): string|undefined {
   }
 }
 
-function processSrcset(srcset: string, parentUrl: string) {
+function mediaBookmarkUrl(bookmarkId: number|bigint, url: string): string { return `/media/${bookmarkId}/${url}`; }
+
+export function processSrcset(srcset: string, parentUrl: string, bookmarkId: number|bigint) {
   if (!srcset) {
     return undefined;
   }
@@ -258,8 +254,8 @@ function processSrcset(srcset: string, parentUrl: string) {
     if (!url) {
       continue;
     }
-    urls.push(url);             // we'll download this original URL
-    entry[0] = '/media/' + url; // we'll replace the html with this
+    urls.push(url);                               // we'll download this original URL
+    entry[0] = mediaBookmarkUrl(bookmarkId, url); // we'll replace the html with this
   }
   return { urls, srcsetNew: list.map(v => v.join(' ')).join(',') }
 }
@@ -268,33 +264,108 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(() => resolve(), milliseconds));
 }
 
-async function saveUrl(db: Db, url: string, info = '') {
-  const mediaCount = db.prepare<{path: string}>(`select count(*) as count from media where path=$path`);
+export function sha256hash(content: Buffer) {
+  const hash = createHash(HASH_ALGORITHM);
+  hash.update(content);
+  return hash.digest('base64url');
+}
+
+async function saveUrl(db: Db, url: string, bookmarkId: number|bigint) {
+  const mediaCounter = db.prepare<{path: string, bookmarkId: number | bigint}>(
+      `select count(*) as count from media where path=$path and bookmarkId=$bookmarkId`);
   const mediaInsert = db.prepare<Table.mediaRow>(`insert into media
-  (path, mime, content, createdTime, numBytes)
-  values ($path, $mime, $content, $createdTime, $numBytes)`);
-  const init = {'headers': {'User-Agent': USER_AGENT}};
+      (path, bookmarkId, sha256, createdTime)
+      values ($path, $bookmarkId, $sha256, $createdTime)`);
 
-  const row: {count: number} = mediaCount.get({path: url});
-  if (!row || row.count === 0) {
-    console.log(`${info}url=${url}`);
+  const blobCounter = db.prepare<{sha256: string}>(`select count(*) as count from blob where sha256=$sha256`);
+  const blobInsert = db.prepare<Table.blobRow>(`insert into blob
+      (content, mime, createdTime, numBytes, sha256)
+      values ($content, $mime, $createdTime, $numBytes, $sha256)`);
 
+  const pathCount: {count: number} = mediaCounter.get({path: url, bookmarkId});
+  if (!pathCount || pathCount.count === 0) {
+    console.log(`bookmarkId=${bookmarkId}, url=${url}`);
+
+    const init = {'headers': {'User-Agent': USER_AGENT}};
     const response = await fetch(url, init);
     if (response.ok) {
       const blob = await response.arrayBuffer();
       const mime = response.headers.get('content-type');
       if (!mime) {
         // likely a tracking pixel or something stupid/evil
+        console.warn(`no mime, status=${response.status} ${response.statusText}`);
         return;
       }
-      const media: Table
-          .mediaRow = {path: url, mime, content: Buffer.from(blob), createdTime: Date.now(), numBytes: blob.byteLength};
-      mediaInsert.run(media);
+      const content = Buffer.from(blob);
+      const sha256 = sha256hash(content);
+      mediaInsert.run({path: url, bookmarkId, sha256, createdTime: Date.now()});
+
+      const blobCount: {count: number} = blobCounter.get({sha256});
+      if (!blobCount || blobCount.count === 0) {
+        blobInsert.run({content, mime, createdTime: Date.now(), numBytes: content.byteLength, sha256})
+      }
+
       await sleep(MIN_WAIT + Math.random() * (MAX_WAIT - MIN_WAIT))
     } else {
-      console.error(`${info}RESPONSE ERROR ${response.status} ${response.statusText}, url=${url}`)
+      console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, url=${url}`)
     }
   }
+}
+
+// Rewrite URLs in DOM and return a list of the original URLs
+export function updateDomUrls(dom: JSDOM, parentUrl: string, bookmarkId: number|bigint): string[] {
+  const urls: string[] = [];
+  const mediaUrl = (url: string) => mediaBookmarkUrl(bookmarkId, url);
+
+  for (const video of dom.window.document.querySelectorAll('video')) {
+    const src = fixUrl(video.src, parentUrl);
+    if (!src) {
+      continue;
+    }
+    video.src = mediaUrl(src);
+    if (video.poster) {
+      const url = video.poster;
+      urls.push(url);
+      video.poster = mediaUrl(url);
+    }
+    // TODO call youtube-dl to download video
+    console.log(`bookmarkId=${bookmarkId}, youtube-dl ${src}, and upload result`);
+  }
+
+  for (const source of dom.window.document.querySelectorAll('source')) {
+    if (source.srcset) {
+      const srcset = processSrcset(source.srcset, parentUrl, bookmarkId);
+      if (srcset) {
+        // download
+        urls.push(...srcset.urls);
+        // override DOM node
+        source.srcset = srcset.srcsetNew;
+      }
+    }
+  }
+
+  for (const img of dom.window.document.querySelectorAll('img')) {
+    const src = fixUrl(img.src, parentUrl);
+    if (!src) {
+      continue;
+    }
+
+    // download image src
+    urls.push(src);
+    // override source to point to our mirror
+    img.src = mediaUrl(src);
+
+    // handle srcset
+    const srcset = processSrcset(img.srcset, parentUrl, bookmarkId);
+    if (srcset) {
+      // download
+      urls.push(...srcset.urls);
+      // override DOM node
+      img.srcset = srcset.srcsetNew;
+    }
+  }
+
+  return urls;
 }
 
 async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
@@ -308,55 +379,8 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
   }
 
   const dom = new JSDOM(row.original);
-  const infoStr = `bookmark=${bookmarkId} `;
 
-  for (const video of dom.window.document.querySelectorAll('video')) {
-    const src = fixUrl(video.src, bookmark.url);
-    if (!src) {
-      continue;
-    }
-    video.src = '/media/' + src;
-    if (video.poster) {
-      const url = video.poster;
-      await saveUrl(db, url, infoStr)
-      video.poster = '/media/' + url;
-    }
-    // TODO call youtube-dl to download video
-    console.log(`bookmarkId=${bookmarkId}, youtube-dl ${src}, and upload result`);
-  }
-
-  for (const source of dom.window.document.querySelectorAll('source')) {
-    if (source.srcset) {
-      const srcset = processSrcset(source.srcset, bookmark.url);
-      if (srcset) {
-        // download
-        for (const url of srcset.urls) { await saveUrl(db, url, infoStr); }
-        // override DOM node
-        source.srcset = srcset.srcsetNew;
-      }
-    }
-  }
-
-  for (const img of dom.window.document.querySelectorAll('img')) {
-    const src = fixUrl(img.src, bookmark.url);
-    if (!src) {
-      continue;
-    }
-
-    // download image src
-    await saveUrl(db, src, infoStr);
-    // override source to point to our mirror
-    img.src = '/media/' + src;
-
-    // handle srcset
-    const srcset = processSrcset(img.srcset, bookmark.url);
-    if (srcset) {
-      // download
-      for (const url of srcset.urls) { await saveUrl(db, url, infoStr); }
-      // override DOM node
-      img.srcset = srcset.srcsetNew;
-    }
-  }
+  for (const url of updateDomUrls(dom, bookmark.url, bookmarkId)) { await saveUrl(db, url, bookmarkId) }
 
   // with stuff downloaded, update backup.content
   db.prepare(`update backup set content=$content where bookmarkId=$bookmarkId`)
@@ -409,41 +433,56 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
   // media
   app.post(mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
+    const bookmarkId = parseInt(req.params.bookmarkId);
     const files = req.files;
-    if (files && files instanceof Array) {
-      const ret: Record<string, number> = {};
-      const createdTime = Date.now();
-      const insertStatement = db.prepare(
-          `insert into media (path, content, mime, numBytes, createdTime) values ($path, $content, $mime, $numBytes, $createdTime)`);
+    if (files && files instanceof Array && isFinite(bookmarkId)) {
+      const mediaInsert = db.prepare<Table.mediaRow>(`insert into media
+      (path, bookmarkId, sha256, createdTime)
+      values ($path, $bookmarkId, $sha256, $createdTime)`);
+      const blobCounter = db.prepare<{sha256: string}>(`select count(*) as count from blob where sha256=$sha256`);
+      const blobInsert = db.prepare<Table.blobRow>(`insert into blob
+      (content, mime, createdTime, numBytes, sha256)
+      values ($content, $mime, $createdTime, $numBytes, $sha256)`);
 
       for (const file of files) {
-        const media: Table.mediaRow =
-            {path: file.originalname, mime: file.mimetype, content: file.buffer, numBytes: file.size, createdTime};
+        const content = file.buffer;
+        const sha256 = sha256hash(content);
+        const media: Table.mediaRow = {path: file.originalname, bookmarkId, sha256, createdTime: Date.now()};
         try {
-          const insert = insertStatement.run(media);
-          ret[media.path] = insert.changes >= 1 ? 200 : 500;
+          mediaInsert.run(media);
         } catch (e) {
-          if (uniqueConstraintError(e)) {
-            ret[media.path] = 409;
-          } else {
+          if (!uniqueConstraintError(e)) {
             throw e;
           }
         }
+        const blobCount: {count: number|bigint} = blobCounter.get({sha256});
+        if (!blobCount.count) {
+          blobInsert.run({content, mime: file.mimetype, createdTime: Date.now(), numBytes: content.byteLength, sha256});
+        }
       }
-      res.json(ret);
+      res.status(200).send();
       return;
     }
     res.status(400).send('need files');
   });
   app.get(/^\/media\//, (req, res) => {
-    const needle = '/media/';
-    const filename = req.url.slice(req.url.indexOf(needle) + needle.length);
-    // console.log(`media request: filename=${filename}, url=${req.url}`);
-    const got = getFilename(db, filename);
-    if (got) {
-      res.contentType(got.mime);
-      res.send(got.content);
-      return;
+    const match = req.url.match(/^\/media\/([0-9]+)\/(.+)$/);
+    if (match) {
+      const bookmarkId = parseInt(match[1]);
+      const path = match[2];
+      if (isFinite(bookmarkId) && path) {
+        const got: Selected<Pick<Table.blobRow, 'mime'|'content'>> = db.prepare<{bookmarkId: number, path: string}>(
+                                                                           `select b.mime, b.content
+            from media as m
+            inner join blob as b
+            on media.sha256=blob.sha256
+            where m.bookmarkId=$bookmarkId and m.path=$path`).get({bookmarkId, path});
+        if (got) {
+          res.contentType(got.mime);
+          res.send(got.content);
+          return;
+        }
+      }
     }
     res.status(404).send();
   });
@@ -479,44 +518,12 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 }
 
 if (require.main === module) {
-  function clean(x: Table.mediaRow) {
-    if (x.mime.includes('text/plain')) {
-      x.content = x.content.toString();
-    }
-    return x;
-  }
-
   (async function main() {
     const db = dbInit('yamanote.db');
 
     const port = 3456;
     const app = await startServer(db, port);
 
-    if (0) {
-      const form = new FormData();
-      const contentType = "text/plain";
-      for (const name of 'a,b,c'.split(',')) {
-        const filename = `file${name}.txt`;
-        db.prepare('delete from media where path=$filename').run({filename});
-        const txt = name === 'a' ? 'fileA contents' : name === 'b' ? 'fileBBB' : 'c';
-        form.append('files', Buffer.from(txt), {filename, contentType, knownLength: txt.length});
-      }
-      const url = `http://localhost:${port}${mediaPath({})}`;
-      // This is needlessly complicated because I want to test everything with async/await rather than callbacks, sorry
-      const res = await promisify(form.submit.bind(form))(url);
-      await new Promise((resolve, reject) => {
-        // via https://stackoverflow.com/a/54025408
-        let reply = '';
-        res.on('data', (chunk) => { reply += chunk; });
-        res.on('end', () => {
-          console.log({reply: JSON.parse(reply)});
-          resolve(1);
-        });
-      });
-
-      const all: Table.mediaRow[] = db.prepare(`select * from media`).all();
-      console.dir(all.map(clean), {depth: null});
-    }
     if (0) {
       const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
       for (const x of all) { rerenderComment(db, x); }
@@ -526,10 +533,6 @@ if (require.main === module) {
       const all: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark order by modifiedTime desc`).all()
       for (const x of all) { rerenderJustBookmark(db, x); }
       cacheAllBookmarks(db);
-    }
-    if (0) {
-      const all: SelectedAll<Table.backupRow> = db.prepare(`select * from backup`).all()
-      console.log(all.map(o => o.content.length / 1024 + ' kb'));
     }
     {
       const title = 'TITLE YOU WANT TO DELETE';

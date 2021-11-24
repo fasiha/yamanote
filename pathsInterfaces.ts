@@ -2,8 +2,8 @@ import sqlite3 from 'better-sqlite3';
 import * as t from 'io-ts';
 import {path} from 'static-path';
 
-export const filenamePath = path('/media/:filename');
-export const mediaPath = path('/media');
+// export const filenamePath = path('/media/:filename');
+export const mediaPath = path('/media/:bookmarkId');
 export const bookmarkPath = path('/bookmark');
 export const backupPath = path('/backup/:bookmarkId');
 export const commentPath = path('/comment/:commentId');

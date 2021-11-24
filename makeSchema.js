@@ -3,7 +3,7 @@ Equivalent to the following:
 
 ```sh
 #!/bin/sh
-for i in 1 2; do
+for i in 1 2 3; do
   rm -f __empty.db
   sqlite3 __empty.db < db-v$i.sql
   npx @rmp135/sql-ts -c sqlite-v$i.json
@@ -11,9 +11,10 @@ for i in 1 2; do
   echo "done v$i"
 done
 ```
+Except, below, we'll probably only run this for ONE schema version.
 */
 
-var VERSIONS = [1, 2];
+var VERSIONS = [3];
 
 var {rm, readFile, writeFile} = require('fs/promises');
 var sqlite3 = require('better-sqlite3');

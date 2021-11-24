@@ -9,7 +9,7 @@ export function makeBackupTriggers(db: Db, table: string, ignoreColumns: Set<str
   // Largely following https://blog.budgetwithbuckets.com/2018/08/27/sqlite-changelog.html
   const sql = `
 -- Change log table
-CREATE TABLE IF NOT EXISTS change_log (
+CREATE TABLE IF NOT EXISTS _change_log (
     id INTEGER PRIMARY KEY,
     created INTEGER DEFAULT CURRENT_TIMESTAMP,
     action TEXT,
@@ -27,7 +27,7 @@ DROP TRIGGER IF EXISTS $TABLE_track_delete;
 CREATE TRIGGER $TABLE_track_insert
 AFTER INSERT ON $TABLE
 BEGIN
-  INSERT INTO change_log (action, table_name, obj_id)
+  INSERT INTO _change_log (action, table_name, obj_id)
   VALUES ('INSERT', '$TABLE', NEW.id);
 END;
 
@@ -35,7 +35,7 @@ END;
 CREATE TRIGGER $TABLE_track_update
 AFTER UPDATE ON $TABLE
 BEGIN
-  INSERT INTO change_log (action, table_name, obj_id, oldvals)
+  INSERT INTO _change_log (action, table_name, obj_id, oldvals)
   SELECT
     'UPDATE', '$TABLE', OLD.id, changes
   FROM
@@ -61,7 +61,7 @@ END;
 CREATE TRIGGER $TABLE_track_delete
 AFTER DELETE ON $TABLE
 BEGIN
-  INSERT INTO change_log (action, table_name, obj_id, oldvals)
+  INSERT INTO _change_log (action, table_name, obj_id, oldvals)
   SELECT
     'DELETE', '$TABLE', OLD.id, changes
   FROM
