@@ -58,11 +58,8 @@ function up(a: Db, b: Db) {
 
     for (const backup of backups) {
       const dom = new JSDOM(backup.original);
-
-      // overwrite
-      backupContentUpdate.run({id: backup.id, content: dom.serialize()});
-
       const urls = updateDomUrls(dom, backup.url, backup.bookmarkId);
+      backupContentUpdate.run({id: backup.id, content: dom.serialize()});
       for (const path of urls) {
         const medias: SelectedAll<Old.mediaRow> = mediaSelect.all({path});
         for (const oldMedia of medias) {
