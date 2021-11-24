@@ -472,11 +472,11 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
       const path = match[2];
       if (isFinite(bookmarkId) && path) {
         const got: Selected<Pick<Table.blobRow, 'mime'|'content'>> = db.prepare<{bookmarkId: number, path: string}>(
-                                                                           `select b.mime, b.content
-            from media as m
-            inner join blob as b
-            on media.sha256=blob.sha256
-            where m.bookmarkId=$bookmarkId and m.path=$path`).get({bookmarkId, path});
+                                                                           `select blob.mime, blob.content
+          from media
+          inner join blob
+          on media.sha256=blob.sha256
+          where media.bookmarkId=$bookmarkId and media.path=$path`).get({bookmarkId, path});
         if (got) {
           res.contentType(got.mime);
           res.send(got.content);
@@ -519,7 +519,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
 if (require.main === module) {
   (async function main() {
-    const db = dbInit('yamanote.db');
+    const db = dbInit(`yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
 
     const port = 3456;
     const app = await startServer(db, port);
@@ -538,7 +538,7 @@ if (require.main === module) {
       const title = 'TITLE YOU WANT TO DELETE';
       const res: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark where title=$title`).all({title});
       if (res.length === 1) {
-        console.log(`sqlite3 yamanote.db
+        console.log(`sqlite3 yamanote-v${SCHEMA_VERSION_REQUIRED}.db
 delete from bookmark where id=${res[0].id};
 delete from comment where bookmarkId=${res[0].id};
 delete from backup where bookmarkId=${res[0].id};
