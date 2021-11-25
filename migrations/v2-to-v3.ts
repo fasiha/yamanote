@@ -2,10 +2,12 @@ import assert from 'assert';
 import sqlite3 from 'better-sqlite3';
 import {readdirSync, readFileSync, renameSync} from 'fs';
 import {JSDOM} from 'jsdom';
-import {sha256hash, uniqueConstraintError, updateDomUrls} from '..';
+
 import * as Old from '../DbTablesV2';
 import * as New from '../DbTablesV3';
+import {sha256hash, uniqueConstraintError, updateDomUrls} from '../index';
 import {SelectedAll} from '../pathsInterfaces'
+
 type Db = ReturnType<typeof sqlite3>;
 
 const FROM = 2;

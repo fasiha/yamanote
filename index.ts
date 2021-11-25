@@ -7,9 +7,10 @@ import {JSDOM} from 'jsdom';
 import multer from 'multer';
 import fetch from 'node-fetch';
 import assert from 'node:assert';
+import * as srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV3';
-import {makeBackupTriggers} from './makeBackupTriggers';
+import {makeBackupTriggers} from './makeBackupTriggers.js';
 import {
   AddBookmarkOrCommentPayload,
   AddCommentOnlyPayload,
@@ -22,8 +23,8 @@ import {
   mediaPath,
   Selected,
   SelectedAll
-} from './pathsInterfaces';
-import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers';
+} from './pathsInterfaces.js';
+import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers.js';
 
 const SCHEMA_VERSION_REQUIRED = 3;
 const HASH_ALGORITHM = 'sha256';
@@ -247,17 +248,18 @@ export function processSrcset(srcset: string, parentUrl: string, bookmarkId: num
     return undefined;
   }
 
-  const list = srcset.split(/\s*,\s*/).map(s => s.split(/\s+/));
+  const list = srcsetlib.parse(srcset);
+  const newlist: typeof list = [];
   const urls = [];
   for (const entry of list) {
-    const url = fixUrl(entry[0], parentUrl);
-    if (!url) {
+    const originalUrl = fixUrl(entry.url, parentUrl);
+    if (!originalUrl) {
       continue;
     }
-    urls.push(url);                               // we'll download this original URL
-    entry[0] = mediaBookmarkUrl(bookmarkId, url); // we'll replace the html with this
+    urls.push(originalUrl);                                                   // we'll download this original URL
+    newlist.push({...entry, url: mediaBookmarkUrl(bookmarkId, originalUrl)}); // we'll replace the html with this
   }
-  return { urls, srcsetNew: list.map(v => v.join(' ')).join(',') }
+  return {urls, srcsetNew: srcsetlib.stringify(newlist)};
 }
 
 function sleep(milliseconds: number): Promise<void> {
@@ -397,6 +399,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
+  app.get('/favicon.ico', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
   app.get('/prelude.js', (req, res) => res.sendFile(__dirname + '/prelude.js'));
 
   // bookmarks
@@ -471,12 +474,11 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
       const bookmarkId = parseInt(match[1]);
       const path = match[2];
       if (isFinite(bookmarkId) && path) {
-        const got: Selected<Pick<Table.blobRow, 'mime'|'content'>> = db.prepare<{bookmarkId: number, path: string}>(
-                                                                           `select blob.mime, blob.content
-          from media
-          inner join blob
-          on media.sha256=blob.sha256
-          where media.bookmarkId=$bookmarkId and media.path=$path`).get({bookmarkId, path});
+        const got: Selected<Pick<Table.blobRow, 'mime'|'content'>> =
+            db.prepare<{bookmarkId: number, path: string}>(`select mime, content from blob 
+                where sha256=(select sha256 from media where bookmarkId=$bookmarkId and path=$path limit 1)`)
+                .get({bookmarkId, path});
+        console.log({got, path, bookmarkId})
         if (got) {
           res.contentType(got.mime);
           res.send(got.content);

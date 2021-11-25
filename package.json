@@ -45,6 +45,7 @@
     "mime": "^3.0.0",
     "multer": "^1.4.3",
     "node-fetch": "^2.6.6",
+    "srcset": "^4.0.0",
     "static-path": "^0.0.4"
   }
 }
