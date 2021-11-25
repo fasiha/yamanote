@@ -2,6 +2,7 @@ import sqlite3 from 'better-sqlite3';
 import bodyParser from 'body-parser';
 import {createHash} from 'crypto';
 import * as express from 'express';
+import {number} from 'fp-ts';
 import {readFileSync} from 'fs';
 import {JSDOM} from 'jsdom';
 import multer from 'multer';
@@ -10,7 +11,7 @@ import assert from 'node:assert';
 import * as srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV3';
-import {passportSetup} from './federated-auth';
+import {ensureAuthenticated, passportSetup} from './federated-auth';
 import {makeBackupTriggers} from './makeBackupTriggers.js';
 import {
   AddBookmarkOrCommentPayload,
@@ -21,6 +22,7 @@ import {
   bookmarkPath,
   commentPath,
   Db,
+  FullRow,
   mediaPath,
   Selected,
   SelectedAll
@@ -30,7 +32,7 @@ import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark}
 const SCHEMA_VERSION_REQUIRED = 3;
 const HASH_ALGORITHM = 'sha256';
 
-let ALL_BOOKMARKS = '';
+let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
 
 /**
  * Save a new backup after a ~month
@@ -74,19 +76,18 @@ export function dbInit(fname: string) {
     makeBackupTriggers(db, 'bookmark', ignore);
     makeBackupTriggers(db, 'comment', ignore);
   }
-  cacheAllBookmarks(db);
   return db;
 }
 
-function cacheAllBookmarks(db: Db) {
+function cacheAllBookmarks(db: Db, userId: bigint|number) {
   const res: Pick<Table.bookmarkRow, 'render'>[] =
-      db.prepare(`select render from bookmark order by modifiedTime desc`).all();
+      db.prepare(`select render from bookmark where userId=$userId order by modifiedTime desc`).all({userId});
   const renders = res.map(o => o.render).join('\n');
   const js = readFileSync('bookmarklet.js', 'utf8');
   const prelude = readFileSync('prelude.html', 'utf8') +
                   `<p>Bookmarklet: <a id="bookmarklet" href="${
                       js}">山の手</a>. Code: <a href="https://github.com/fasiha/yamanote">GitHub</a></p>`;
-  ALL_BOOKMARKS = prelude + (renders || '');
+  ALL_BOOKMARKS.set(userId, prelude + (renders || ''));
 }
 
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
@@ -105,10 +106,10 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
   return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
 }
 
-function createNewBookmark(db: Db, url: string, title: string, comment: string): number|bigint {
+function createNewBookmark(db: Db, url: string, title: string, comment: string, userId: number|bigint): number|bigint {
   const now = Date.now();
   const bookmarkRow: Table.bookmarkRow = {
-    userId: -1,
+    userId,
     url,
     title,
     createdTime: now,
@@ -128,7 +129,8 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string):
   return id;
 }
 
-function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Record<string, any>] {
+function bodyToBookmark(db: Db, body: Record<string, any>,
+                        userId: number|bigint): [number, string|Record<string, any>] {
   type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'>>;
 
   {
@@ -150,8 +152,9 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
         }
 
         const bookmark: SmallBookmark =
-            db.prepare(`select id, render, modifiedTime from bookmark where url=$url and title=$title`)
-                .get({title, url});
+            db.prepare(
+                  `select id, render, modifiedTime from bookmark where url=$url and title=$title and userId=$userId`)
+                .get({title, url, userId});
 
         if (bookmark) {
           // existing bookmark
@@ -172,9 +175,9 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
           }
         } else {
           // new bookmark
-          id = createNewBookmark(db, url, title, comment);
+          id = createNewBookmark(db, url, title, comment, userId);
         }
-        cacheAllBookmarks(db);
+        cacheAllBookmarks(db, userId);
 
         if (html) {
           db.prepare(`insert into backup (bookmarkId, content, createdTime)
@@ -196,10 +199,10 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
     if (res._tag === 'Right') {
       const {id, comment} = res.right;
       const bookmark: SmallBookmark =
-          db.prepare(`select id, render, modifiedTime from bookmark where id=$id`).get({id});
+          db.prepare(`select id, render, modifiedTime from bookmark where id=$id and userId=$userId`).get({id, userId});
       if (bookmark) {
         fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, id));
-        cacheAllBookmarks(db);
+        cacheAllBookmarks(db, userId);
         return [200, {}];
       }
       return [401, 'not authorized'];
@@ -209,6 +212,9 @@ function bodyToBookmark(db: Db, body: Record<string, any>): [number, string|Reco
     const res = AddHtmlPayload.decode(body);
     if (res._tag === 'Right') {
       const {id, html} = res.right;
+      if (!userBookmarkAuth(db, userId, id)) {
+        return [401, 'not autorized']
+      }
       const backup: Table.backupRow = {bookmarkId: id, content: html, original: html, createdTime: Date.now()};
       db.prepare(`insert into backup (bookmarkId, content, original, createdTime)
       values ($bookmarkId, $content, $original, $createdTime)`)
@@ -404,6 +410,22 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
   console.log(`done downloading ${bookmarkId}`);
 }
 
+function reqToUser(req: express.Request): FullRow<Table.userRow> {
+  if (!req.user || !('id' in req.user)) {
+    throw new Error('unauthenticated should not reach here');
+  }
+  return req.user;
+}
+
+function userBookmarkAuth(db: Db, userOrId: number|bigint|FullRow<Table.userRow>, bookmarkId: number|bigint): boolean {
+  const userId = typeof userOrId === 'object' ? userOrId.id : userOrId;
+  const usercheck: {count: number} =
+      db.prepare<{bookmarkId: number | bigint, userId: number | bigint}>(
+            `select count(*) as count from bookmark where id=$bookmarkId and userId=$userId`)
+          .get({bookmarkId, userId})
+  return usercheck.count > 0;
+}
+
 async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
@@ -412,20 +434,29 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.use(require('compression')());
   app.use(bodyParser.json({limit: fieldSize}));
   passportSetup(db, app);
-  app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
+  app.get('/', ensureAuthenticated, (req, res) => {
+    const user = reqToUser(req);
+    if (!ALL_BOOKMARKS.has(user.id)) {
+      cacheAllBookmarks(db, user.id);
+    }
+    res.send(ALL_BOOKMARKS.get(user.id));
+  });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
   app.get('/favicon.ico', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
   app.get('/prelude.js', (req, res) => res.sendFile(__dirname + '/prelude.js'));
 
   // bookmarks
-  app.post(bookmarkPath.pattern, (req, res) => {
-    console.log('POST! ', {title: req.body.title, url: req.body.url, comment: (req.body.comment || '').slice(0, 100)});
+  app.post(bookmarkPath.pattern, ensureAuthenticated, (req, res) => {
+    const user = reqToUser(req);
+    console.log(
+        'POST! ',
+        {title: req.body.title, url: req.body.url, comment: (req.body.comment || '').slice(0, 100), user: user.id});
     if (!req.body) {
       res.status(400).send('post json');
       return;
     }
-    const [code, msg] = bodyToBookmark(db, req.body);
+    const [code, msg] = bodyToBookmark(db, req.body, user.id);
     if (code === 200) {
       assert(typeof msg === 'object', '200 will send JSON');
       res.json(msg);
@@ -436,11 +467,14 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   });
 
   // backups
-  app.get(backupPath.pattern, (req, res) => {
+  app.get(backupPath.pattern, ensureAuthenticated, (req, res) => {
+    const user = reqToUser(req);
     const backup: Pick<Table.backupRow, 'content'>|undefined =
-        db.prepare(`select content from backup where bookmarkId=$bookmarkId order by createdTime desc limit 1`).get({
-          bookmarkId: req.params.bookmarkId
-        });
+        db.prepare<{userId: number | bigint, bookmarkId: number | bigint}>(`select backup.content from backup
+            inner join bookmark on bookmark.id=backup.bookmarkId
+            where bookmarkId=$bookmarkId and userId=$userId
+            order by backup.createdTime desc limit 1`)
+            .get({bookmarkId: parseInt(req.params.bookmarkId), userId: user.id});
     if (backup) {
       // prevent the browser from going anywhere to request data. This disables external JS, CSS, images, etc.
       res.set({'Content-Security-Policy': `default-src 'self'`});
@@ -451,8 +485,13 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   });
 
   // media
-  app.post(mediaPath.pattern, upload.array('files', maxFiles), (req, res) => {
+  app.post(mediaPath.pattern, ensureAuthenticated, upload.array('files', maxFiles), (req, res) => {
     const bookmarkId = parseInt(req.params.bookmarkId);
+    if (!userBookmarkAuth(db, reqToUser(req), bookmarkId)) {
+      res.status(401).send();
+      return;
+    }
+
     const files = req.files;
     if (files && files instanceof Array && isFinite(bookmarkId)) {
       const mediaInsert = db.prepare<Table.mediaRow>(`insert into media
@@ -484,10 +523,15 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     }
     res.status(400).send('need files');
   });
-  app.get(/^\/media\//, (req, res) => {
+  app.get(/^\/media\//, ensureAuthenticated, (req, res) => {
     const match = req.url.match(/^\/media\/([0-9]+)\/(.+)$/);
     if (match) {
       const bookmarkId = parseInt(match[1]);
+      if (!userBookmarkAuth(db, reqToUser(req), bookmarkId)) {
+        res.status(401).send();
+        return;
+      }
+
       const path = match[2];
       if (isFinite(bookmarkId) && path) {
         const got: Selected<Pick<Table.blobRow, 'mime'|'content'>> =
@@ -506,7 +550,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
 
   // comments (a lot of comment-related stuff is handled under bookmarks above though, stuff where you don't know the
   // comment ID)
-  app.put(commentPath.pattern, function commentPut(req, res) {
+  app.put(commentPath.pattern, ensureAuthenticated, function commentPut(req, res) {
     const commentId = parseInt(req.params.commentId);
     const {content} = req.body;
     if (isFinite(commentId) && typeof content === 'string') {
@@ -514,14 +558,17 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
       const row: {bookmarkId: number} =
           db.prepare<{id: number}>(`select bookmarkId from comment where id=$id`).get({id: commentId});
       if (row && row.bookmarkId >= 0) { // sqlite row IDs start at 1 by the way
-        db.prepare<{content: string, modifiedTime: number, id: number}>(
-              `update comment set content=$content, modifiedTime=$modifiedTime where id=$id`)
-            .run({content, modifiedTime: Date.now(), id: commentId});
-        rerenderComment(db, commentId);
-        rerenderJustBookmark(db, row.bookmarkId);
-        cacheAllBookmarks(db);
-        res.status(200).send();
-        return;
+        const user = reqToUser(req);
+        if (userBookmarkAuth(db, user, row.bookmarkId)) {
+          db.prepare<{content: string, modifiedTime: number, id: number}>(
+                `update comment set content=$content, modifiedTime=$modifiedTime where id=$id`)
+              .run({content, modifiedTime: Date.now(), id: commentId});
+          rerenderComment(db, commentId);
+          rerenderJustBookmark(db, row.bookmarkId);
+          cacheAllBookmarks(db, user.id);
+          res.status(200).send();
+          return;
+        }
       } else {
         res.status(401).send();
       }
@@ -544,12 +591,12 @@ if (require.main === module) {
     if (0) {
       const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
       for (const x of all) { rerenderComment(db, x); }
-      cacheAllBookmarks(db);
+      cacheAllBookmarks(db, 1);
     }
     if (0) {
       const all: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark order by modifiedTime desc`).all()
       for (const x of all) { rerenderJustBookmark(db, x); }
-      cacheAllBookmarks(db);
+      cacheAllBookmarks(db, 1);
     }
     {
       const title = 'TITLE YOU WANT TO DELETE';

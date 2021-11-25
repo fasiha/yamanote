@@ -23,7 +23,7 @@ function findOrCreateGithub(db: Db, profile: GitHubStrategy.Profile, allowlist: 
     return row;
   }
 
-  const user: Table.userRow = {displayName: profile.displayName, githubId};
+  const user: Table.userRow = {displayName: profile.username || profile.displayName || '', githubId};
   const res =
       db.prepare<Table.userRow>(`insert into user (displayName, githubId) values ($displayName, $githubId)`).run(user);
   if (res.changes > 0) {
