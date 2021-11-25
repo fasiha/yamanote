@@ -67,6 +67,7 @@ export function dbInit(fname: string) {
   {
     // create (if needed) backup table and triggers
     makeBackupTriggers(db, 'media');
+    makeBackupTriggers(db, 'blob');
     makeBackupTriggers(db, 'backup', new Set(['content']));
     const ignore = new Set(['render', 'renderedTime'])
     makeBackupTriggers(db, 'bookmark', ignore);
