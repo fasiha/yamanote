@@ -43,7 +43,7 @@ create table media (
   bookmarkId integer not null,
   sha256 text not null, 
   createdTime float not null,
-  unique (sha256, path)
+  unique (sha256, path, bookmarkId)
 );
 create table blob (
   id INTEGER PRIMARY KEY,

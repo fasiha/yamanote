@@ -320,6 +320,16 @@ export function updateDomUrls(dom: JSDOM, parentUrl: string, bookmarkId: number|
   const urls: string[] = [];
   const mediaUrl = (url: string) => mediaBookmarkUrl(bookmarkId, url);
 
+  for (const link of dom.window.document.querySelectorAll('link')) {
+    if (link.rel === 'stylesheet' && link.href) {
+      const url = fixUrl(link.href, parentUrl);
+      if (url) {
+        urls.push(url);
+        link.href = mediaUrl(url);
+      }
+    }
+  }
+
   for (const video of dom.window.document.querySelectorAll('video')) {
     const src = fixUrl(video.src, parentUrl);
     if (!src) {
@@ -327,9 +337,11 @@ export function updateDomUrls(dom: JSDOM, parentUrl: string, bookmarkId: number|
     }
     video.src = mediaUrl(src);
     if (video.poster) {
-      const url = video.poster;
-      urls.push(url);
-      video.poster = mediaUrl(url);
+      const url = fixUrl(video.poster, parentUrl);
+      if (url) {
+        urls.push(url);
+        video.poster = mediaUrl(url);
+      }
     }
     // TODO call youtube-dl to download video
     console.log(`bookmarkId=${bookmarkId}, youtube-dl ${src}, and upload result`);
@@ -388,6 +400,7 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
   // with stuff downloaded, update backup.content
   db.prepare(`update backup set content=$content where bookmarkId=$bookmarkId`)
       .run({content: dom.serialize(), bookmarkId});
+  console.log(`done downloading ${bookmarkId}`);
 }
 
 async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
@@ -479,7 +492,6 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
             db.prepare<{bookmarkId: number, path: string}>(`select mime, content from blob 
                 where sha256=(select sha256 from media where bookmarkId=$bookmarkId and path=$path limit 1)`)
                 .get({bookmarkId, path});
-        console.log({got, path, bookmarkId})
         if (got) {
           res.contentType(got.mime);
           res.send(got.content);
