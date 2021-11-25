@@ -10,6 +10,7 @@ import assert from 'node:assert';
 import * as srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV3';
+import {passportSetup} from './federated-auth';
 import {makeBackupTriggers} from './makeBackupTriggers.js';
 import {
   AddBookmarkOrCommentPayload,
@@ -410,6 +411,7 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
   app.use(require('cors')());
   app.use(require('compression')());
   app.use(bodyParser.json({limit: fieldSize}));
+  passportSetup(db, app);
   app.get('/', (req, res) => { res.send(ALL_BOOKMARKS); });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));

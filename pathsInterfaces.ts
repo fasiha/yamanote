@@ -27,6 +27,8 @@ export type Selected<T> = (T&{id: number | bigint})|undefined;
 
 export type SelectedAll<T> = NonNullable<Selected<T>>[];
 
+export type FullRow<T> = NonNullable<Selected<T>>;
+
 export const AddBookmarkOrCommentPayload = t.intersection([
   t.type({
     _type: t.literal('addBookmarkOrComment'),
@@ -60,3 +62,11 @@ export const AskForHtmlPayload = t.type({
   htmlWanted: t.boolean,
 });
 export type AskForHtmlPayload = t.TypeOf<typeof AskForHtmlPayload>;
+
+export const Env = t.type({
+  GITHUB_CLIENT_ID: t.string,
+  GITHUB_CLIENT_SECRET: t.string,
+  SESSION_SECRET: t.string,
+  GITHUB_ID_ALLOWLIST: t.string,
+});
+export type Env = t.TypeOf<typeof Env>;
