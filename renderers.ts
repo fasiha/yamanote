@@ -43,9 +43,7 @@ export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNu
                                           ? idOrBookmark
                                           : db.prepare(`select * from bookmark where id=$id`).get({id: idOrBookmark})
   const id = typeof idOrBookmark === 'object' ? idOrBookmark.id : idOrBookmark;
-  if (!bookmark) {
-    throw new Error('unknown bookmark ' + idOrBookmark);
-  }
+  if (!bookmark) { throw new Error('unknown bookmark ' + idOrBookmark); }
   const {url, title} = bookmark;
   const anchor = `bookmark-${id}`;
 
@@ -90,9 +88,7 @@ export function fastUpdateBookmarkWithNewComment(db: Db, bookmarkRender: string,
 
   const breakStr = '\n';
   const newline = bookmarkRender.indexOf(breakStr);
-  if (newline < 0) {
-    throw new Error('no newline in render ' + bookmarkId);
-  }
+  if (newline < 0) { throw new Error('no newline in render ' + bookmarkId); }
   // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
   const newRender = bookmarkRender.substring(0, newline + breakStr.length) + commentRender + '\n' +
                     bookmarkRender.slice(newline + breakStr.length);

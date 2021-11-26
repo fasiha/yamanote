@@ -19,9 +19,7 @@ import {
 
 function fixUrl(url: string, parentUrl: string): string|undefined {
   // NO source? Data URL? Skip.
-  if (!url || url.startsWith('data:')) {
-    return undefined;
-  }
+  if (!url || url.startsWith('data:')) { return undefined; }
 
   try {
     new URL(url);
@@ -44,9 +42,7 @@ function downloadVideos(db: Db, bookmarkId: number|bigint) {
           .get({bookmarkId});
   const bookmark: Pick<Table.bookmarkRow, 'url'> =
       db.prepare<{id: number | bigint}>('select url from bookmark where id=$id').get({id: bookmarkId});
-  if (!row || !row.original || !bookmark || !bookmark.url) {
-    return;
-  }
+  if (!row || !row.original || !bookmark || !bookmark.url) { return; }
 
   const dom = new JSDOM(row.original);
 
@@ -57,9 +53,7 @@ function downloadVideos(db: Db, bookmarkId: number|bigint) {
 
   for (const video of dom.window.document.querySelectorAll('video')) {
     const src = fixUrl(video.src, bookmark.url);
-    if (!src) {
-      continue;
-    }
+    if (!src) { continue; }
     const row: {count: number} = mediaCount.get({path: src});
     if (!row || row.count === 0) {
       const randbasename = Math.random().toString(36).slice(2);

@@ -13,24 +13,18 @@ type Db = ReturnType<typeof sqlite3>;
 function findOrCreateGithub(db: Db, profile: GitHubStrategy.Profile, allowlist: '*'|Set<string>): undefined|
     FullRow<Table.userRow> {
   if (typeof allowlist === 'object') {
-    if (!allowlist.has(profile.id)) {
-      return undefined;
-    }
+    if (!allowlist.has(profile.id)) { return undefined; }
   }
 
   const githubId = typeof profile.id === 'number' ? profile.id : parseInt(profile.id);
   const row: Selected<Table.userRow> =
       db.prepare<{githubId: number}>(`select * from user where githubId=$githubId`).get({githubId});
-  if (row) {
-    return row;
-  }
+  if (row) { return row; }
 
   const user: Table.userRow = {displayName: profile.username || profile.displayName || '', githubId};
   const res =
       db.prepare<Table.userRow>(`insert into user (displayName, githubId) values ($displayName, $githubId)`).run(user);
-  if (res.changes > 0) {
-    return {...user, id: res.lastInsertRowid};
-  }
+  if (res.changes > 0) { return {...user, id: res.lastInsertRowid}; }
 
   return undefined;
 }
@@ -41,9 +35,7 @@ function getUser(db: Db, serialized: number|string): Selected<Table.userRow> {
 
 export function passportSetup(db: Db, app: Express, sessionFilename: string): {knex: KnexType} {
   const decoded = Env.decode(require('dotenv').config()?.parsed);
-  if (decoded._tag === 'Left') {
-    throw new Error('.env failed to decode');
-  }
+  if (decoded._tag === 'Left') { throw new Error('.env failed to decode'); }
   const env = decoded.right;
 
   const githubAllowlist =
@@ -98,15 +90,11 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
 
 export const ensureAuthenticated: RequestHandler = (req, res, next) => {
   // check session (i.e., GitHub, etc.)
-  if (req.isAuthenticated && req.isAuthenticated()) {
-    return next();
-  }
+  if (req.isAuthenticated && req.isAuthenticated()) { return next(); }
   return res.redirect('/auth/github');
 };
 // Via @jaredhanson: https://gist.github.com/joshbirk/1732068#gistcomment-80892
 export const ensureUnauthenticated: RequestHandler = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    return res.redirect('/');
-  }
+  if (req.isAuthenticated()) { return res.redirect('/'); }
   next();
 };

@@ -147,9 +147,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
 
         let id: bigint|number;
 
-        if (quote && comment) {
-          comment = '> ' + comment.replace(/\n/g, '\n> ');
-        }
+        if (quote && comment) { comment = '> ' + comment.replace(/\n/g, '\n> '); }
 
         const bookmark: SmallBookmark =
             db.prepare(
@@ -212,9 +210,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
     const res = AddHtmlPayload.decode(body);
     if (res._tag === 'Right') {
       const {id, html} = res.right;
-      if (!userBookmarkAuth(db, userId, id)) {
-        return [401, 'not autorized']
-      }
+      if (!userBookmarkAuth(db, userId, id)) { return [401, 'not autorized'] }
       const backup: Table.backupRow = {bookmarkId: id, content: html, original: html, createdTime: Date.now()};
       db.prepare(`insert into backup (bookmarkId, content, original, createdTime)
       values ($bookmarkId, $content, $original, $createdTime)`)
@@ -230,9 +226,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
 
 function fixUrl(url: string, parentUrl: string): string|undefined {
   // NO source? Data URL? Skip.
-  if (!url || url.startsWith('data:')) {
-    return undefined;
-  }
+  if (!url || url.startsWith('data:')) { return undefined; }
 
   try {
     new URL(url);
@@ -252,18 +246,14 @@ function fixUrl(url: string, parentUrl: string): string|undefined {
 function mediaBookmarkUrl(bookmarkId: number|bigint, url: string): string { return `/media/${bookmarkId}/${url}`; }
 
 export function processSrcset(srcset: string, parentUrl: string, bookmarkId: number|bigint) {
-  if (!srcset) {
-    return undefined;
-  }
+  if (!srcset) { return undefined; }
 
   const list = srcsetlib.parse(srcset);
   const newlist: typeof list = [];
   const urls = [];
   for (const entry of list) {
     const originalUrl = fixUrl(entry.url, parentUrl);
-    if (!originalUrl) {
-      continue;
-    }
+    if (!originalUrl) { continue; }
     urls.push(originalUrl);                                                   // we'll download this original URL
     newlist.push({...entry, url: mediaBookmarkUrl(bookmarkId, originalUrl)}); // we'll replace the html with this
   }
@@ -339,9 +329,7 @@ export function updateDomUrls(dom: JSDOM, parentUrl: string, bookmarkId: number|
 
   for (const video of dom.window.document.querySelectorAll('video')) {
     const src = fixUrl(video.src, parentUrl);
-    if (!src) {
-      continue;
-    }
+    if (!src) { continue; }
     video.src = mediaUrl(src);
     if (video.poster) {
       const url = fixUrl(video.poster, parentUrl);
@@ -368,9 +356,7 @@ export function updateDomUrls(dom: JSDOM, parentUrl: string, bookmarkId: number|
 
   for (const img of dom.window.document.querySelectorAll('img')) {
     const src = fixUrl(img.src, parentUrl);
-    if (!src) {
-      continue;
-    }
+    if (!src) { continue; }
 
     // download image src
     urls.push(src);
@@ -396,9 +382,7 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
           .get({bookmarkId});
   const bookmark: Pick<Table.bookmarkRow, 'url'> =
       db.prepare<{id: number | bigint}>('select url from bookmark where id=$id').get({id: bookmarkId});
-  if (!row || !row.original || !bookmark || !bookmark.url) {
-    return;
-  }
+  if (!row || !row.original || !bookmark || !bookmark.url) { return; }
 
   const dom = new JSDOM(row.original);
 
@@ -411,9 +395,7 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
 }
 
 function reqToUser(req: express.Request): FullRow<Table.userRow> {
-  if (!req.user || !('id' in req.user)) {
-    throw new Error('unauthenticated should not reach here');
-  }
+  if (!req.user || !('id' in req.user)) { throw new Error('unauthenticated should not reach here'); }
   return req.user;
 }
 
@@ -442,9 +424,7 @@ export async function startServer(db: Db, {
   app.get('/', (req, res) => {
     if (req.user) {
       const user = reqToUser(req);
-      if (!ALL_BOOKMARKS.has(user.id)) {
-        cacheAllBookmarks(db, user.id);
-      }
+      if (!ALL_BOOKMARKS.has(user.id)) { cacheAllBookmarks(db, user.id); }
       res.send(ALL_BOOKMARKS.get(user.id));
       return;
     }
@@ -518,9 +498,7 @@ export async function startServer(db: Db, {
         try {
           mediaInsert.run(media);
         } catch (e) {
-          if (!uniqueConstraintError(e)) {
-            throw e;
-          }
+          if (!uniqueConstraintError(e)) { throw e; }
         }
         const blobCount: {count: number|bigint} = blobCounter.get({sha256});
         if (!blobCount.count) {
