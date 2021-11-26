@@ -1,5 +1,7 @@
 import sqlite3 from 'better-sqlite3';
+import KnexSession from 'connect-session-knex';
 import {Express, RequestHandler} from 'express';
+import Knex, {Knex as KnexType} from 'knex';
 import passport from 'passport';
 import GitHubStrategy from 'passport-github';
 
@@ -37,7 +39,7 @@ function getUser(db: Db, serialized: number|string): Selected<Table.userRow> {
   return db.prepare<{id: number | string}>(`select * from user where id=$id`).get({id: serialized});
 }
 
-export function passportSetup(db: Db, app: Express) {
+export function passportSetup(db: Db, app: Express, sessionFilename: string): {knex: KnexType} {
   const decoded = Env.decode(require('dotenv').config()?.parsed);
   if (decoded._tag === 'Left') {
     throw new Error('.env failed to decode');
@@ -63,9 +65,9 @@ export function passportSetup(db: Db, app: Express) {
 
   app.use(require('cookie-parser')());
 
-  const Knex = require('knex');
-  const store = new (require('connect-session-knex')(require('express-session')))(
-      {knex: Knex({client: "sqlite3", useNullAsDefault: true, connection: {filename: "session.db"}})});
+  const knex = Knex({client: "sqlite3", useNullAsDefault: true, connection: {filename: sessionFilename}});
+  const store = new (KnexSession(require('express-session')))({knex});
+
   app.use(require('express-session')({
     cookie: process.env.NODE_ENV === 'development' ? {secure: false, sameSite: 'lax'}
                                                    : {secure: true, sameSite: 'none'},
@@ -90,6 +92,8 @@ export function passportSetup(db: Db, app: Express) {
     // console.log(req.user);
     res.send(`You're logged in! <a href="/">Go back</a>`);
   });
+
+  return {knex};
 }
 
 export const ensureAuthenticated: RequestHandler = (req, res, next) => {

@@ -426,20 +426,29 @@ function userBookmarkAuth(db: Db, userOrId: number|bigint|FullRow<Table.userRow>
   return usercheck.count > 0;
 }
 
-async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, maxFiles = 10) {
+export async function startServer(db: Db, {
+  port = 3456,
+  fieldSize = 1024 * 1024 * 20,
+  maxFiles = 10,
+  sessionFilename = 'session.db',
+}) {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
   const app = express.default();
   app.use(require('cors')());
   app.use(require('compression')());
   app.use(bodyParser.json({limit: fieldSize}));
-  passportSetup(db, app);
-  app.get('/', ensureAuthenticated, (req, res) => {
-    const user = reqToUser(req);
-    if (!ALL_BOOKMARKS.has(user.id)) {
-      cacheAllBookmarks(db, user.id);
+  const {knex} = passportSetup(db, app, sessionFilename);
+  app.get('/', (req, res) => {
+    if (req.user) {
+      const user = reqToUser(req);
+      if (!ALL_BOOKMARKS.has(user.id)) {
+        cacheAllBookmarks(db, user.id);
+      }
+      res.send(ALL_BOOKMARKS.get(user.id));
+      return;
     }
-    res.send(ALL_BOOKMARKS.get(user.id));
+    res.sendFile(__dirname + '/welcome.html');
   });
   app.get('/popup', (req, res) => res.sendFile(__dirname + '/prelude.html'));
   app.get('/yamanote-favico.png', (req, res) => res.sendFile(__dirname + '/yamanote-favico.png'));
@@ -576,9 +585,10 @@ async function startServer(db: Db, port = 3456, fieldSize = 1024 * 1024 * 20, ma
     res.status(400).send();
   });
 
-  await new Promise((resolve, reject) => app.listen(port, () => resolve(1)));
+  const server: ReturnType<typeof app.listen> =
+      await new Promise((resolve, reject) => {const server = app.listen(port, () => resolve(server))});
   console.log(`Example app listening at http://localhost:${port}`);
-  return app;
+  return {app, server, knex};
 }
 
 if (require.main === module) {
@@ -586,7 +596,7 @@ if (require.main === module) {
     const db = dbInit(`yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
 
     const port = 3456;
-    const app = await startServer(db, port);
+    const app = await startServer(db, {port});
 
     if (0) {
       const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
