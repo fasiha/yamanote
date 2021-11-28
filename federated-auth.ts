@@ -65,6 +65,7 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
                                                    : {secure: true, sameSite: 'none'},
     secret: env.SESSION_SECRET,
     resave: true,
+    rolling: true,
     saveUninitialized: true,
     store,
   }));
