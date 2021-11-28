@@ -287,28 +287,30 @@ async function saveUrl(db: Db, url: string, bookmarkId: number|bigint) {
     console.log(`bookmarkId=${bookmarkId}, url=${url}`);
 
     const init = {'headers': {'User-Agent': USER_AGENT}};
-    const response = await fetch(url, init);
-    if (response.ok) {
-      const blob = await response.arrayBuffer();
-      const mime = response.headers.get('content-type');
-      if (!mime) {
-        // likely a tracking pixel or something stupid/evil
-        console.warn(`no mime, status=${response.status} ${response.statusText}`);
-        return;
-      }
-      const content = Buffer.from(blob);
-      const sha256 = sha256hash(content);
-      mediaInsert.run({path: url, bookmarkId, sha256, createdTime: Date.now()});
+    try {
+      const response = await fetch(url, init);
+      if (response.ok) {
+        const blob = await response.arrayBuffer();
+        const mime = response.headers.get('content-type');
+        if (!mime) {
+          // likely a tracking pixel or something stupid/evil
+          console.warn(`no mime, status=${response.status} ${response.statusText}`);
+          return;
+        }
+        const content = Buffer.from(blob);
+        const sha256 = sha256hash(content);
+        mediaInsert.run({path: url, bookmarkId, sha256, createdTime: Date.now()});
 
-      const blobCount: {count: number} = blobCounter.get({sha256});
-      if (!blobCount || blobCount.count === 0) {
-        blobInsert.run({content, mime, createdTime: Date.now(), numBytes: content.byteLength, sha256})
-      }
+        const blobCount: {count: number} = blobCounter.get({sha256});
+        if (!blobCount || blobCount.count === 0) {
+          blobInsert.run({content, mime, createdTime: Date.now(), numBytes: content.byteLength, sha256})
+        }
 
-      await sleep(MIN_WAIT + Math.random() * (MAX_WAIT - MIN_WAIT))
-    } else {
-      console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, url=${url}`)
-    }
+        await sleep(MIN_WAIT + Math.random() * (MAX_WAIT - MIN_WAIT))
+      } else {
+        console.error(`RESPONSE ERROR ${response.status} ${response.statusText}, url=${url}`)
+      }
+    } catch (e) { console.error(`FETCH FAILED TO FETCH, continuing`, e); }
   }
 }
 
