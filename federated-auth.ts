@@ -52,7 +52,7 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
 
   // Serialize an IUser into something we'll store in the user's session (very tiny)
   passport.serializeUser(function(user: any|FullRow<Table.userRow>, cb) { cb(null, user.id); });
-  // Take the data we stored in the session (`gotandaId`) and resurrect the full IUser object
+  // Take the data we stored in the session (`id`) and resurrect the full IUser object
   passport.deserializeUser(function(obj: number|string, cb) { cb(null, getUser(db, obj)); });
 
   app.use(require('cookie-parser')());

@@ -21,20 +21,22 @@ function randomPort(): Promise<number> {
   });
 }
 
-tape('first test', async t => {
+tape('not logged in: show a welcome page', async t => {
+  // setup
   const db = dbInit(':memory:');
   const port = await randomPort();
   const {app, server, knex} = await startServer(db, {port, sessionFilename: ':memory:'});
 
+  // the actual test
   const result = await fetch(`http://localhost:` + port);
   t.ok(result.ok, 'fetch found an acceptable HTTP code')
   const payload = await result.text();
   t.ok(payload.includes('Welcome'));
 
-  await new Promise((r) => server.close(() => r(1)));
+  // teardown
+  server.close();
   db.close();
   knex.destroy();
 
-  // console.log('pid ' + process.pid)
   t.end();
 });
