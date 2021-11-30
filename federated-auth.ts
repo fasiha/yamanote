@@ -1,14 +1,20 @@
 import sqlite3 from 'better-sqlite3';
 import KnexSession from 'connect-session-knex';
+import {randomBytes} from 'crypto';
+import * as express from 'express';
 import {Express, RequestHandler} from 'express';
 import Knex, {Knex as KnexType} from 'knex';
 import passport from 'passport';
 import GitHubStrategy from 'passport-github';
+import {Strategy as BearerStrategy} from 'passport-http-bearer';
+import {promisify} from 'util';
 
 import * as Table from './DbTablesV3';
-import {Env, FullRow, Selected} from './pathsInterfaces';
+import {Env, FullRow, Selected, tokenPath, tokensPath, uniqueConstraintError} from './pathsInterfaces';
 
 type Db = ReturnType<typeof sqlite3>;
+const BEARER_NAME = 'bearerStrategy';
+const randomBytesP = promisify(randomBytes);
 
 function findOrCreateGithub(db: Db, profile: GitHubStrategy.Profile, allowlist: '*'|Set<string>): undefined|
     FullRow<Table.userRow> {
@@ -29,8 +35,20 @@ function findOrCreateGithub(db: Db, profile: GitHubStrategy.Profile, allowlist: 
   return undefined;
 }
 
-function getUser(db: Db, serialized: number|string): Selected<Table.userRow> {
-  return db.prepare<{id: number | string}>(`select * from user where id=$id`).get({id: serialized});
+function findToken(db: Db, token: string) {
+  const res: {userId: number|bigint} =
+      db.prepare<{token: string}>(`select userId from token where token=$token`).get({token});
+  if (res && 'userId' in res) { return getUser(db, res.userId); }
+  return undefined;
+}
+
+function getUser(db: Db, serialized: number|bigint|string): Selected<Table.userRow> {
+  return db.prepare<{id: number | bigint | string}>(`select * from user where id=$id`).get({id: serialized});
+}
+
+export function reqToUser(req: express.Request): FullRow<Table.userRow> {
+  if (!req.user || !('id' in req.user)) { throw new Error('unauthenticated should not reach here'); }
+  return req.user;
 }
 
 export function passportSetup(db: Db, app: Express, sessionFilename: string): {knex: KnexType} {
@@ -49,6 +67,8 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
       },
       // This function converts the GitHub profile into our app's object representing the user
       (accessToken, refreshToken, profile, cb) => cb(null, findOrCreateGithub(db, profile, githubAllowlist))));
+  // Tell Passport we want to use Bearer (API token) auth, and *name* this strategy: we'll use this name below
+  passport.use(BEARER_NAME, new BearerStrategy((token, cb) => cb(null, findToken(db, token))));
 
   // Serialize an IUser into something we'll store in the user's session (very tiny)
   passport.serializeUser(function(user: any|FullRow<Table.userRow>, cb) { cb(null, user.id); });
@@ -86,13 +106,52 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
     res.send(`You're logged in! <a href="/">Go back</a>`);
   });
 
+  // tokens
+
+  // get a new token
+  app.get(tokenPath.pattern, ensureAuthenticated, async (req, res) => {
+    const userId = reqToUser(req).id;
+    if (!userId) { throw new Error('should be authenticated'); }
+
+    const statement = db.prepare<Table.tokenRow>(
+        `insert into token (userId, description, token) values ($userId, $description, $token)`);
+
+    let rowsInserted = 0;
+    let token = '';
+    while (rowsInserted === 0) {
+      // chances of random collissions with 20+ bytes are infinitessimal but let's be safe
+      token = (await randomBytesP(20)).toString('base64url');
+      try {
+        const res = statement.run({userId, description: '', token});
+        rowsInserted += res.changes;
+      } catch (e) {
+        if (!uniqueConstraintError(e)) { throw e; }
+      }
+    }
+    res.json({token}).send();
+  });
+
+  // delete ALL tokens
+  app.delete(tokensPath.pattern, ensureAuthenticated, (req, res) => {
+    const userId = reqToUser(req).id;
+    db.prepare<{userId: number | bigint}>(`delete from token where userId=$userId`).run({userId});
+    res.status(200).send();
+  });
+
   return {knex};
 }
 
+// The name "bearer" here matches the name we gave the strategy above. See
+// https://dsackerman.com/passportjs-using-multiple-strategies-on-the-same-endpoint/
+const bearerAuthentication = passport.authenticate(BEARER_NAME, {session: false});
+
 export const ensureAuthenticated: RequestHandler = (req, res, next) => {
   // check session (i.e., GitHub, etc.)
-  if (req.isAuthenticated && req.isAuthenticated()) { return next(); }
-  return res.redirect('/auth/github');
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    next();
+  } else {
+    bearerAuthentication(req, res, next);
+  }
 };
 // Via @jaredhanson: https://gist.github.com/joshbirk/1732068#gistcomment-80892
 export const ensureUnauthenticated: RequestHandler = (req, res, next) => {

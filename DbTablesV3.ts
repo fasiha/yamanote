@@ -46,6 +46,11 @@ export interface mediaRow {
   'sha256': string;
   'createdTime': number;
 }
+export interface tokenRow {
+  'token': string;
+  'description': string;
+  'userId': number|bigint;
+}
 export interface userRow {
   'id'?: number|bigint | null;
   'displayName': string;

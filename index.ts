@@ -11,7 +11,7 @@ import assert from 'node:assert';
 import * as srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV3';
-import {ensureAuthenticated, passportSetup} from './federated-auth';
+import {ensureAuthenticated, passportSetup, reqToUser} from './federated-auth';
 import {makeBackupTriggers} from './makeBackupTriggers.js';
 import {
   AddBookmarkOrCommentPayload,
@@ -25,7 +25,8 @@ import {
   FullRow,
   mediaPath,
   Selected,
-  SelectedAll
+  SelectedAll,
+  uniqueConstraintError
 } from './pathsInterfaces.js';
 import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers.js';
 
@@ -40,10 +41,6 @@ let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
 const SAVE_BACKUP_THROTTLE_MILLISECONDS = 3600e3 * 24 * 30;
 const USER_AGENT = `Yamanote (contact info at https://github.com/fasiha/yamanote)`;
 const [MIN_WAIT, MAX_WAIT] = [500, 2000]; // milliseconds between network requests
-
-export function uniqueConstraintError(e: unknown): boolean {
-  return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
-}
 
 function dbVersionCheck(db: Db) {
   const s = db.prepare(`select schemaVersion from _yamanote_db_state`);
@@ -394,11 +391,6 @@ async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
   db.prepare(`update backup set content=$content where bookmarkId=$bookmarkId`)
       .run({content: dom.serialize(), bookmarkId});
   console.log(`done downloading ${bookmarkId}`);
-}
-
-function reqToUser(req: express.Request): FullRow<Table.userRow> {
-  if (!req.user || !('id' in req.user)) { throw new Error('unauthenticated should not reach here'); }
-  return req.user;
 }
 
 function userBookmarkAuth(db: Db, userOrId: number|bigint|FullRow<Table.userRow>, bookmarkId: number|bigint): boolean {

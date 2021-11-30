@@ -7,7 +7,13 @@ export const mediaPath = path('/media/:bookmarkId');
 export const bookmarkPath = path('/bookmark');
 export const backupPath = path('/backup/:bookmarkId');
 export const commentPath = path('/comment/:commentId');
+export const tokenPath = path('/auth/token');
+export const tokensPath = path('/auth/tokens');
 export type Db = ReturnType<typeof sqlite3>;
+
+export function uniqueConstraintError(e: unknown): boolean {
+  return e instanceof sqlite3.SqliteError && e.code === 'SQLITE_CONSTRAINT_UNIQUE';
+}
 
 /**
  * We need someting like `Selected` because sql-ts emits my tables' `id` as

@@ -8,6 +8,11 @@ create table user (
   displayName text not null,
   githubId integer unique not null
 );
+create table token (
+  token text primary key not null,
+  description text not null,
+  userId integer not null
+);
 create table bookmark (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   userId integer not null,
