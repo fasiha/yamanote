@@ -83,7 +83,7 @@ function downloadVideos(db: Db, bookmarkId: number|bigint) {
 }
 
 if (require.main === module) {
-  const db = sqlite3('yamanote.db');
+  const db = sqlite3('.data/yamanote.db');
   const ids: {id: number|bigint}[] = db.prepare('select id from bookmark').all()
   for (const {id} of ids) { downloadVideos(db, id); }
   console.log('done downloading all images');

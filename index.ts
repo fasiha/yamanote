@@ -2,9 +2,9 @@ import sqlite3 from 'better-sqlite3';
 import bodyParser from 'body-parser';
 import {createHash} from 'crypto';
 import * as express from 'express';
-import {number} from 'fp-ts';
 import {readFileSync} from 'fs';
 import {JSDOM} from 'jsdom';
+import {sync as mkdirpSync} from 'mkdirp';
 import multer from 'multer';
 import fetch from 'node-fetch';
 import assert from 'node:assert';
@@ -407,7 +407,7 @@ export async function startServer(db: Db, {
   port = 3456,
   fieldSize = 1024 * 1024 * 20,
   maxFiles = 10,
-  sessionFilename = 'session.db',
+  sessionFilename = __dirname + '/.data/session.db',
 }) {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
@@ -617,7 +617,8 @@ export async function startServer(db: Db, {
 
 if (require.main === module) {
   (async function main() {
-    const db = dbInit(`yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
+    mkdirpSync(__dirname + '/.data');
+    const db = dbInit(__dirname + `/.data/yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
 
     const port = 3456;
     const app = await startServer(db, {port});
@@ -636,7 +637,7 @@ if (require.main === module) {
       const title = 'TITLE YOU WANT TO DELETE';
       const res: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark where title=$title`).all({title});
       if (res.length === 1) {
-        console.log(`sqlite3 yamanote-v${SCHEMA_VERSION_REQUIRED}.db
+        console.log(`sqlite3 .data/yamanote-v${SCHEMA_VERSION_REQUIRED}.db
 delete from bookmark where id=${res[0].id};
 delete from comment where bookmarkId=${res[0].id};
 delete from backup where bookmarkId=${res[0].id};

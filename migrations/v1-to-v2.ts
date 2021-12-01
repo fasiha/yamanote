@@ -13,14 +13,10 @@ function up(a: Db, b: Db) {
   assert(tables(a).sort().join(',') === tables(b).sort().join(','), 'same tables');
   const tablesList = tables(a);
   for (const table of tablesList) {
-    if (table.startsWith('_')) {
-      continue;
-    }
+    if (table.startsWith('_')) { continue; }
     if (table === 'media') {
       const all: Record<string, string>[] = a.prepare(`select * from ${table}`).all();
-      if (all.length === 0) {
-        continue;
-      }
+      if (all.length === 0) { continue; }
       const oldkeys = Object.keys(all[0]);
       const newkeys = oldkeys.map(o => o === 'filename' ? 'path' : o); // THE ONLY REPLACEMENT lol
       const st =
@@ -28,9 +24,7 @@ function up(a: Db, b: Db) {
       for (const x of all) { st.run({...x, path: x.filename}); }
     } else if (table === 'backup') {
       const all: Record<string, string>[] = a.prepare(`select * from ${table}`).all();
-      if (all.length === 0) {
-        continue;
-      }
+      if (all.length === 0) { continue; }
 
       const keys = Object.keys(all[0]);
       keys.push('original')
@@ -38,9 +32,7 @@ function up(a: Db, b: Db) {
       for (const x of all) { st.run({...x, original: x.content}); }
     } else {
       const all: Record<string, string>[] = a.prepare(`select * from ${table}`).all();
-      if (all.length === 0) {
-        continue;
-      }
+      if (all.length === 0) { continue; }
 
       const keys = Object.keys(all[0]);
       const st = b.prepare(`insert into ${table} (${keys.join(',')}) values (${keys.map(s => '$' + s).join(',')})`);
@@ -50,9 +42,9 @@ function up(a: Db, b: Db) {
 }
 
 if (require.main === module) {
-  const a = sqlite3('yamanote.db', {readonly: true});
+  const a = sqlite3('.data/yamanote.db', {readonly: true});
   const randomString = `-${Math.random().toString(36).slice(2)}`;
-  const bfname = `yamanote-v2${randomString}.db`;
+  const bfname = `.data/yamanote-v2${randomString}.db`;
   const b = sqlite3(bfname);
   if (tables(b).length === 0) {
     b.pragma('journal_mode = WAL'); // https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md

@@ -21,17 +21,13 @@ function tables(db: Db) {
 function up(a: Db, b: Db) {
   const tablesList = tables(a);
   for (const table of tablesList) {
-    if (table.startsWith('_') || table.startsWith('change_log')) {
-      continue;
-    }
+    if (table.startsWith('_') || table.startsWith('change_log')) { continue; }
     if (table === 'media') {
       // skip copying until after all other rows copied, specifically we want backup copied because when we process
       // media table, we'll overwrite backup.content
     } else {
       const all: Record<string, string>[] = a.prepare(`select * from ${table}`).all();
-      if (all.length === 0) {
-        continue;
-      }
+      if (all.length === 0) { continue; }
 
       const keys = Object.keys(all[0]);
       const st = b.prepare(`insert into ${table} (${keys.join(',')}) values (${keys.map(s => '$' + s).join(',')})`);
@@ -80,9 +76,7 @@ function up(a: Db, b: Db) {
             mediaInsert.run(newMedia);
             blobInsert.run(newBlob);
           } catch (e) {
-            if (!uniqueConstraintError(e)) {
-              throw e;
-            }
+            if (!uniqueConstraintError(e)) { throw e; }
           }
         }
       }
@@ -91,9 +85,9 @@ function up(a: Db, b: Db) {
 }
 
 if (require.main === module) {
-  const a = sqlite3('yamanote.db', {readonly: true});
+  const a = sqlite3('.data/yamanote.db', {readonly: true});
   const randomString = `-${Math.random().toString(36).slice(2)}`;
-  const bfname = `yamanote-v${TO}${randomString}.db`;
+  const bfname = `.data/yamanote-v${TO}${randomString}.db`;
   const b = sqlite3(bfname);
   if (tables(b).length === 0) {
     b.pragma('journal_mode = WAL'); // https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
