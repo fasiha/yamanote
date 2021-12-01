@@ -24,6 +24,7 @@ import {
   Db,
   FullRow,
   mediaPath,
+  mergePath,
   Selected,
   SelectedAll,
   uniqueConstraintError
@@ -531,11 +532,11 @@ export async function startServer(db: Db, {
 
   // comments (a lot of comment-related stuff is handled under bookmarks above though, stuff where you don't know the
   // comment ID)
+  // This is for editing a comment in-place
   app.put(commentPath.pattern, ensureAuthenticated, function commentPut(req, res) {
     const commentId = parseInt(req.params.commentId);
     const {content} = req.body;
     if (isFinite(commentId) && typeof content === 'string') {
-      // TODO: check authorization
       const row: {bookmarkId: number} =
           db.prepare<{id: number}>(`select bookmarkId from comment where id=$id`).get({id: commentId});
       if (row && row.bookmarkId >= 0) { // sqlite row IDs start at 1 by the way
@@ -555,6 +556,57 @@ export async function startServer(db: Db, {
       }
     }
     res.status(400).send();
+  });
+
+  // housekeeping
+  app.get(mergePath.pattern, ensureAuthenticated, (req, res) => {
+    // move comments, delete backup and media (don't delete blobs: they might be used by others and I don't want to
+    // check that a blob is unused here). Delete bookmark.
+    const user = reqToUser(req);
+    const fromId = parseInt(req.params.fromId);
+    const toId = parseInt(req.params.toId);
+    if ([toId, fromId].every(id => userBookmarkAuth(db, user, id))) {
+      db.prepare<{fromId: number, toId: number}>(`update comment set bookmarkId=$toId where bookmarkId=$fromId`)
+          .run({fromId, toId});
+      db.prepare<{fromId: number}>(`delete from backup where bookmarkId=$fromId`).run({fromId});
+      db.prepare<{fromId: number}>(`delete from media where bookmarkId=$fromId`).run({fromId});
+      db.prepare<{fromId: number}>(`delete from bookmark where id=$fromId`).run({fromId});
+
+      // this might have changed the bookmark's `modifiedTime`
+      const row: {createdTime: number}|undefined =
+          db.prepare<{toId: number}>(`select max(createdTime) as createdTime from comment where bookmarkId=$toId`)
+              .get({toId});
+      if (row) {
+        db.prepare<{toId: number, createdTime: number}>(`update bookmark set modifiedTime=$createdTime where id=$toId`)
+            .run({toId, createdTime: row.createdTime});
+        // TODO can I do both of these in one SQL update?
+      }
+      // should there be an `else`? The `else` should *never* run since that would mean there's a bookmark with no
+      // comments
+
+      rerenderJustBookmark(db, toId);
+      cacheAllBookmarks(db, user.id);
+      res.status(200).send();
+      return;
+    }
+    res.status(401).send();
+  });
+
+  // metadata: sizes of various content
+  app.get('/sizecheck', (req, res) => {
+    const backups:
+        {len: number, bookmarkId: string, url: string}[] = db.prepare(`select length(content) as len, bookmarkId, url
+    from backup join bookmark on bookmark.id=backup.bookmarkId
+    order by len desc limit 25`).all();
+
+    const blobs = db.prepare(`select length(content) as len, blob.sha256, bookmarkId, path, bookmark.url
+        from blob
+        join media on blob.sha256=media.sha256
+        join bookmark on media.bookmarkId=bookmark.id
+        order by len desc limit 25`)
+                      .all();
+
+    res.json({backups, blobs});
   });
 
   const server: ReturnType<typeof app.listen> =

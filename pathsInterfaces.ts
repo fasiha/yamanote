@@ -9,6 +9,8 @@ export const backupPath = path('/backup/:bookmarkId');
 export const commentPath = path('/comment/:commentId');
 export const tokenPath = path('/auth/token');
 export const tokensPath = path('/auth/tokens');
+export const mergePath = path('/merge/:fromId/:toId');
+
 export type Db = ReturnType<typeof sqlite3>;
 
 export function uniqueConstraintError(e: unknown): boolean {
