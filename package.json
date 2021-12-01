@@ -8,7 +8,7 @@
     "schema": "node makeSchema.js",
     "build": "tsc -p .",
     "serve": "npm run build && node index.js",
-    "watch": "NODE_ENV=development nodemon -L index.js",
+    "watch": "NODE_ENV=development nodemon -L -e index.js index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
