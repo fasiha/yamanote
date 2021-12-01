@@ -33,9 +33,7 @@ window.addEventListener("message", async (event) => {
 
 window.onload = () => {
   const a = document.querySelector('a#bookmarklet');
-  if (a && a.href) {
-    a.href = a.href.replace(/http:\/\/localhost:3456/g, window.location.origin);
-  }
+  if (a && a.href) { a.href = a.href.replace(/http:\/\/localhost:3456/g, window.location.origin); }
 
   // These special classes are implemented in renderers.ts, e.g.,
   // `add-comment-button` and `comment-button`, etc.
@@ -76,9 +74,7 @@ window.onload = () => {
         };
       } else if (target.classList.contains('edit-comment-button')) {
         const comment = target.parentElement.querySelector('pre.unrendered')?.textContent;
-        if (typeof comment !== 'string') {
-          return;
-        }
+        if (typeof comment !== 'string') { return; }
 
         const textarea = document.createElement('textarea');
         textarea.value = comment;
