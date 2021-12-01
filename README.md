@@ -58,9 +58,9 @@ These are technical notes on how to set up Yamanote to run on a server, intended
 1. Enter the new directory: run `cd yamanote`
 1. Ask npm, the Node package manager, to install all dependencies: run `npm i`.
 1. Register a [new GitHub OAuth app](https://docs.github.com/en/developers/apps/building-oauth-apps/creating-an-oauth-app). I know some of you feel ill at even the mention of Microsoft, but please try to control your drama, you need this just to log into Yamanote so it knows whose bookmarks are whose
-    - Your answers to “Application name” and “Homepage URL” are not important, but “Authorization callback URL” is really important.
-    - If you just want to use Yamanote on the same computer as it’s running on, you can use `http://localhost:3456`
-    - If you want to use it on any computer in your home network, use `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456`. If you don’t know your computer’s local IP address, look up instructions for your operating system (on Linux and macOS, you can run `ifconfig`; on Windows I think you right-click something…?), or look at your router’s list of connected devices.
+    - Your answers to “Application name” and “Homepage URL” are not important, but **“Authorization callback URL” is really important**.
+    - If you just want to use Yamanote on the same computer as it’s running on, you can use `http://localhost:3456/auth/github/callback`
+    - If you want to use it on any computer in your home network, use `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456/auth/github/callback`. If you don’t know your computer’s local IP address, look up instructions for your operating system (on Linux and macOS, you can run `ifconfig`; on Windows I think you right-click something…?), or look at your router’s list of connected devices.
 1. Create a new `.env` by copying the example: run `cp env.example .env`
 1. Open `.env` in your favorite text editor and fill in the data it needs:
     - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` come from GitHub when you register your new application above
