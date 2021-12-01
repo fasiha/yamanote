@@ -8,6 +8,7 @@ import {sync as mkdirpSync} from 'mkdirp';
 import multer from 'multer';
 import fetch from 'node-fetch';
 import assert from 'node:assert';
+import http from 'node:http';
 import * as srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV3';
@@ -33,6 +34,7 @@ import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark}
 
 const SCHEMA_VERSION_REQUIRED = 3;
 const HASH_ALGORITHM = 'sha256';
+const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3456;
 
 let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
 
@@ -404,11 +406,11 @@ function userBookmarkAuth(db: Db, userOrId: number|bigint|FullRow<Table.userRow>
 }
 
 export async function startServer(db: Db, {
-  port = 3456,
+  port = DEFAULT_PORT,
   fieldSize = 1024 * 1024 * 20,
   maxFiles = 10,
   sessionFilename = __dirname + '/.data/session.db',
-}) {
+} = {}) {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
   const app = express.default();
@@ -610,7 +612,7 @@ export async function startServer(db: Db, {
   });
 
   const server: ReturnType<typeof app.listen> =
-      await new Promise((resolve, reject) => {const server = app.listen(port, () => resolve(server))});
+      await new Promise((resolve, reject) => {const server: http.Server = app.listen(port, () => resolve(server))});
   console.log(`Example app listening at http://localhost:${port}`);
   return {app, server, knex};
 }
@@ -620,8 +622,7 @@ if (require.main === module) {
     mkdirpSync(__dirname + '/.data');
     const db = dbInit(__dirname + `/.data/yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
 
-    const port = 3456;
-    const app = await startServer(db, {port});
+    const app = await startServer(db);
 
     if (0) {
       const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
