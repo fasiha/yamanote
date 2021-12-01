@@ -92,7 +92,7 @@ Random buzzwordy factoids about Yamanote~
     1. (All that said, there are numerous speedups possible because I am a noob at SQL: we could prepare *all* our statements; some places I make two calls to the database instead of combining them.)
 - Almost entirely TypeScript.
     - Uses Gary Bernhardt’s [static-path](https://github.com/garybernhardt/static-path) to typecheck Express.js routes and, in some places, uses [io-ts](https://github.com/gcanti/io-ts/blob/master/index.md#implemented-types--combinators) for runtime codecs.
-    - The tiny part that isn’s TypeScript—the bookmarklet and the light JavaScript in the main Yamanote homepage—ought to be converted 😅, so we can ensure the frontend makes only valid requests to the backend.
+    - The tiny part that isn’t TypeScript—the bookmarklet and the light JavaScript in the main Yamanote homepage—ought to be converted 😅, so we can ensure the frontend makes only valid requests to the backend.
 - Privacy-focused. The only thing Yamanote stores from all the info GitHub sends it is the numeric GitHub ID (not even your username) and the current display name if any.
     - I mean sure, the few times you try to log in without a cookie, Microsoft is going to know you’re accessing some app called Yamanote by some rando named @fasiha—which should be very infrequent since Yamanote cookies should never expire.
     - But yeah, if someone steals the database, they’ll know who was bookmarking leftist cringeprop, sorry.
