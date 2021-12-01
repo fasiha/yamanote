@@ -5,8 +5,8 @@ import {JSDOM} from 'jsdom';
 
 import * as Old from '../DbTablesV2';
 import * as New from '../DbTablesV3';
-import {sha256hash, uniqueConstraintError, updateDomUrls} from '../index';
-import {SelectedAll} from '../pathsInterfaces'
+import {sha256hash, updateDomUrls} from '../index';
+import {SelectedAll, uniqueConstraintError} from '../pathsInterfaces'
 
 type Db = ReturnType<typeof sqlite3>;
 
