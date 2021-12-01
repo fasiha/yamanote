@@ -8,6 +8,7 @@
     "schema": "node makeSchema.js",
     "build": "tsc -p .",
     "serve": "npm run build && node index.js",
+    "start": "npm run serve",
     "watch": "NODE_ENV=development nodemon -L -w index.js index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -58,5 +59,8 @@
     "sqlite3": "^5.0.0",
     "srcset": "^4.0.0",
     "static-path": "^0.0.4"
+  },
+  "engines": {
+    "node": ">=14"
   }
 }
