@@ -93,10 +93,13 @@ Random buzzwordy factoids about Yamanote~
 - Almost entirely TypeScript.
     - Uses Gary Bernhardt’s [static-path](https://github.com/garybernhardt/static-path) to typecheck Express.js routes and, in some places, uses [io-ts](https://github.com/gcanti/io-ts/blob/master/index.md#implemented-types--combinators) for runtime codecs.
     - The tiny part that isn’t TypeScript—the bookmarklet and the light JavaScript in the main Yamanote homepage—ought to be converted 😅, so we can ensure the frontend makes only valid requests to the backend.
+- Built-in backups. There’s a database change-logging system based on [this neat strategy](https://blog.budgetwithbuckets.com/2018/08/27/sqlite-changelog.html). It’s not yet exposed anywhere, but it isn’t purged either, so feel free to edit comments, delete things (directly via SQLite command line), etc., confident that you’ll be able to undo things, with a bit of SQL.
 - Privacy-focused. The only thing Yamanote stores from all the info GitHub sends it is the numeric GitHub ID (not even your username) and the current display name if any.
     - I mean sure, the few times you try to log in without a cookie, Microsoft is going to know you’re accessing some app called Yamanote by some rando named @fasiha—which should be very infrequent since Yamanote cookies should never expire.
     - But yeah, if someone steals the database, they’ll know who was bookmarking leftist cringeprop, sorry.
     - And if you really want me to add another federated login, open an issue—Passport.js supports pretty much everything. Heck, I guess we could even add passwords (with salt and pbkdf2 and ugh this is why I don’t want to store your nasty passwords).
+- This is more of a caveat: backing up all the CSS and images in a webpage can really use up disk space. For example, I noticed that the highest-resolution banner image for a New York Times story is *seven megabytes* ([this doodle](https://static01.nyt.com/images/2021/11/18/opinion/sunday/18tufekci/18tufekci-superJumbo.png) accompanying a [piece](https://www.nytimes.com/2021/11/18/opinion/covid-winter-risk.html) by the immortal Zeynep Tüfekçi). Please keep an eye on the size of your database. Managing archive size is another work in progress.
+    - (Note that, in the above example, the “superJumbo.png” is in an `<img>` tag’s [`srcset`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement/srcset), so your browser wouldn’t download it unless it met a resolution criteria.)
 
 ## Upcoming features
 

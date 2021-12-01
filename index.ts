@@ -593,7 +593,7 @@ export async function startServer(db: Db, {
   });
 
   // metadata: sizes of various content
-  app.get('/sizecheck', (req, res) => {
+  app.get('/sizecheck', ensureAuthenticated, (req, res) => {
     const backups:
         {len: number, bookmarkId: string, url: string}[] = db.prepare(`select length(content) as len, bookmarkId, url
     from backup join bookmark on bookmark.id=backup.bookmarkId
