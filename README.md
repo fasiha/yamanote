@@ -80,6 +80,24 @@ Drag and drop the “山の手” link to your bookmarks bar. macOS users: drag 
     - Twitter looks ok once you delete all SVGs: `Array.from(document.querySelectorAll('svg')).concat(Array.from(document.querySelectorAll('img')).filter(o=>o?.src.endsWith('svg')) ).forEach(o=>o.remove())`
     - This is served with a very locked-down Content Security Policy so your browser will *not* go outside Yamanote to fetch JavaScript or any assets.
 
+## Dev features
+
+Random buzzwordy factoids about Yamanote~
+
+- For a small number of users (one: me), it’s fast and I’m hoping it’ll stay fast thanks to
+    1. conventional wisdom suggesting stock Node and Express are capable of serving 1k to 10k requests per second,
+    1. [better-sqlite3](https://github.com/JoshuaWise/better-sqlite3/) being the high-performance SQLite bridge (apparently *because* it’s synchronous?),
+    1. SQLite running in [write-ahead mode](https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md),
+    1. and Yamanote storing each user’s main page response in memory.
+    1. (All that said, there are numerous speedups possible because I am a noob at SQL: we could prepare *all* our statements; some places I make two calls to the database instead of combining them.)
+- Almost entirely TypeScript.
+    - Uses Gary Bernhardt’s [static-path](https://github.com/garybernhardt/static-path) to typecheck Express.js routes and, in some places, uses [io-ts](https://github.com/gcanti/io-ts/blob/master/index.md#implemented-types--combinators) for runtime codecs.
+    - The tiny part that isn’s TypeScript—the bookmarklet and the light JavaScript in the main Yamanote homepage—ought to be converted 😅, so we can ensure the frontend makes only valid requests to the backend.
+- Privacy-focused. The only thing Yamanote stores from all the info GitHub sends it is the numeric GitHub ID (not even your username) and the current display name if any.
+    - I mean sure, the few times you try to log in without a cookie, Microsoft is going to know you’re accessing some app called Yamanote by some rando named @fasiha—which should be very infrequent since Yamanote cookies should never expire.
+    - But yeah, if someone steals the database, they’ll know who was bookmarking leftist cringeprop, sorry.
+    - And if you really want me to add another federated login, open an issue—Passport.js supports pretty much everything. Heck, I guess we could even add passwords (with salt and pbkdf2 and ugh this is why I don’t want to store your nasty passwords).
+
 ## Upcoming features
 
 Oh my gosh, there are so many features this desperately needs but right now, as of November-end 2021, I think Yamanote is at the MVP (minimum viable product) phase for my own personal use.
