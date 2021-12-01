@@ -20,6 +20,10 @@ window.addEventListener("message", async (event) => {
       window.close();
     }
   } else {
+    if (res.status === 401) {
+      window.location = '/auth/github';
+      return;
+    }
     document.body.append('… uhoh');
     const err = `${res.status} ${res.statusText}`;
     console.error(err);
