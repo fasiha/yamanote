@@ -629,11 +629,13 @@ if (require.main === module) {
       const all: SelectedAll<Table.commentRow> = db.prepare(`select * from comment order by modifiedTime desc`).all()
       for (const x of all) { rerenderComment(db, x); }
       cacheAllBookmarks(db, 1);
+      console.log('done rerendering comments');
     }
     if (0) {
       const all: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark order by modifiedTime desc`).all()
       for (const x of all) { rerenderJustBookmark(db, x); }
       cacheAllBookmarks(db, 1);
+      console.log('done rerendering bookmarks');
     }
     {
       const title = 'TITLE YOU WANT TO DELETE';
