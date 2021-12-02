@@ -1,8 +1,12 @@
 # <ruby>Yama<rt>山</rt></ruby><ruby>no<rt>の</rt></ruby><ruby>te<rt>手</rt></ruby>
 
-> I don’t know if all people are aware that if you write for the media regularly, you *forget* what you write the second you write it, because you’re on to the next thing. And a *lot* of people forget what you write the second you write it because they’re on to reading the next thing. —[“The Pandemic’s Effect on Language”](https://www.booksmartstudios.org/p/the-pandemics-effect-on-language), *Lexicon Valley* podcast, September 22, 2021 (18:30).
+Closed server: https://yamanote.glitch.me. For an invite, [contact](https://fasiha.github.io/#contact) me or open an [issue](https://github.com/fasiha/yamanote/issues)!
+
+See [Setup](#setup) instructions below for easy deploy to Glitch or your own server!
 
 ## Introduction
+
+> I don’t know if all people are aware that if you write for the media regularly, you *forget* what you write the second you write it, because you’re on to the next thing. And a *lot* of people forget what you write the second you write it because they’re on to reading the next thing. —[“The Pandemic’s Effect on Language”](https://www.booksmartstudios.org/p/the-pandemics-effect-on-language), *Lexicon Valley* podcast, September 22, 2021 (18:30).
 
 I read a lot of stuff online.
 
@@ -49,7 +53,42 @@ And here’s a prose description of the above: Yamanote is
 
 *Caveat* This is a very personalized tool! The above list of features and anti-features and non-features is quirky because I’m quirky—sorry!
 
+## Usage
+
+- 🔗 gives you a permalink to this bookmark
+- 💌 lets to add a new comment to this bookmark, **or** to edit an existing comment. The timestamp of each comment is a permalink
+- 💁 shows you your Yamanote archive of the webpage. It might look really weird 😢, Twitter for example looks like crap unless you do some DOM manipulation.
+    - Twitter looks ok once you delete all SVGs: `Array.from(document.querySelectorAll('svg')).concat(Array.from(document.querySelectorAll('img')).filter(o=>o?.src.endsWith('svg')) ).forEach(o=>o.remove())`
+    - This is served with a very locked-down Content Security Policy so your browser will *not* go outside Yamanote to fetch JavaScript or any assets.
+
 ## Setup
+
+Below we detail two different ways to set up your own personal Yamanote. Once that’s set up, the first time you open it, you’ll be invited to log in. The GIF below shows that login, where the bookmarklet is and one way to add it to your bookmarks bar, and finally an example of using it to make your first bookmark:
+
+![Login, bookmarklet, and first bookmark](./yamanote-bookmarklet.gif)
+
+### Glitch
+
+Glitch offers free and paid backends to run Node.js apps, with an in-browser code editor and terminal. To set up your very own Yamanote instance on Glitch:
+
+1. Remix the Glitch Yamanote: https://glitch.com/edit/#!/remix/yamanote
+1. Make note of your new project name (or rename it). In the screenshot below, Glitch has named my remix “mercury-foul-snowdrop”
+1. Register a [new GitHub OAuth app](https://docs.github.com/en/developers/apps/building-oauth-apps/creating-an-oauth-app)
+    - Your answers to “Application name” and “Homepage URL” are not important
+    - However **“Authorization callback URL”** is really important: set this to `https://<YOUR GLITCH PROJECT>.glitch.me/auth/github/callback`
+    - So, taking the screenshot below as my example, I would use https://mercury-foul-snowdrop.glitch.me/auth/github/callback as my “Authorization callback URL”
+1. Back in Glitch, open the `.env` file in the Gitch editor and populate each value
+    - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` come from GitHub when you register your new application above
+    - `GITHUB_ID_ALLOWLIST` is a comma-separated list of numeric GitHub IDs that Yamanote will allow to log in. Nota bene, *this is not usernames* because GitHub allows you to change your username, which is a really nice and important feature. To find my numeric GitHub, for example, go to https://api.github.com/users/fasiha and look for the `id` field: you’ll see mine is 37649
+    - `SESSION_SECRET` should be a long random string that the Express.js web server will use to encrypt session cookies. If you need inspiration, [open](https://webmasters.stackexchange.com/a/77337) your browser’s JavaScript Console and run the following to generate roughly [32](https://crypto.stackexchange.com/a/34866) random bytes: `Array.from(Array(16), _ => Math.random().toString(36).slice(2)).join('')`
+    - `URL` is the *origin* part of the **“Authorization callback URL”** you gave GitHub, so for example, https://mercury-foul-snowdrop.glitch.me for the screenshot below
+1. Glitch will soon restart your server. Go to `https://<YOUR GLITCH PROJECT>.glitch.me` and start using your Yamanote!
+
+![Editing .env in Glitch](./glitch-env.png)
+
+Nota bene: Glitch’s free plan will shut down servers after some inactivity. If that happens, and you bookmark something, it’ll take several seconds for Glitch to restart Yamanote. They do have a paid plan where you can “boost” apps to be always-on. My closed public server mentioned above, https://yamanote.glitch.me, is boosted and should always be on.
+
+### Local
 
 These are technical notes on how to set up Yamanote to run on a server, intended for someone comfortable with the Unix command line. I do hope to one day package this up as a Docker image for easy deployment, but I’m too busy reading your shitposts to do that right now.
 
@@ -61,26 +100,15 @@ These are technical notes on how to set up Yamanote to run on a server, intended
     - Your answers to “Application name” and “Homepage URL” are not important, but **“Authorization callback URL” is really important**.
     - If you just want to use Yamanote on the same computer as it’s running on, you can use `http://localhost:3456/auth/github/callback`
     - If you want to use it on any computer in your home network, use `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456/auth/github/callback`. If you don’t know your computer’s local IP address, look up instructions for your operating system (on Linux and macOS, you can run `ifconfig`; on Windows I think you right-click something…?), or look at your router’s list of connected devices.
-    - If you’ve deployed this to Glitch, use `https://<YOUR GLITCH PROJECT NAME>.glitch.me/auth/github/callback`
 1. Create a new `.env` by copying the example: run `cp env.example .env`
 1. Open `.env` in your favorite text editor and fill in the data it needs:
     - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` come from GitHub when you register your new application above
-    - `GITHUB_ID_ALLOWLIST` is a comma-separated list of numeric GitHub IDs that Yamanote will allow to log in. Nota bene, *this is not usernames* because GitHub allows you to change your username, which is a really nice and important feature. To find my numeric GitHub, for example, go to https://api.github.com/users/fasiha and look for the `id` field: you’ll see mine is `id: 37649`
-    - `SESSION_SECRET` should be a long random string that the Express.js web server will use to encrypt session cookies. If you need inspiration, type in `node` to start the Node REPL and run the following to generate 25 random bytes and stringify them: `crypto.randomBytes(25).toString('base64url')`
-    - `URL` is the *origin* part of the **“Authorization callback URL”** you gave GitHub, so just `http://localhost:3456` or `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456` or `https://<YOUR GLITCH PROJECT NAME>.glitch.me` or whatever.
+    - `GITHUB_ID_ALLOWLIST` is a comma-separated list of numeric GitHub IDs that Yamanote will allow to log in. Nota bene, *this is not usernames* because GitHub allows you to change your username, which is a really nice and important feature. To find my numeric GitHub, for example, go to https://api.github.com/users/fasiha and look for the `id` field: you’ll see mine is 37649
+    - `SESSION_SECRET` should be a long random string that the Express.js web server will use to encrypt session cookies. If you need inspiration, type in `node` to start the Node REPL and run the following to generate 32 random bytes and stringify them: `crypto.randomBytes(32).toString('base64url')`
+    - `URL` is the *origin* part of the **“Authorization callback URL”** you gave GitHub, so just `http://localhost:3456` or `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456` or `https://<YOUR GLITCH PROJECT NAME>.glitch.me` or whatever
 1. You’re finally ready to start the Yamanote server! Run `npm run serve`
 
-Open http://localhost:3456 or `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456` in your browser. Sign in with GitHub.
-
-Drag and drop the “山の手” link to your bookmarks bar. macOS users: drag this to the Safari bookmark bar (Command-Shift-B to toggle this), and it will appear in iOS too!
-
-## Usage
-
-- 🔗 gives you a permalink to this bookmark
-- 💌 lets to add a new comment to this bookmark, **or** to edit an existing comment. The timestamp of each comment is a permalink
-- 💁 shows you your Yamanote archive of the webpage. It might look really weird 😢, Twitter for example looks like crap unless you do some DOM manipulation.
-    - Twitter looks ok once you delete all SVGs: `Array.from(document.querySelectorAll('svg')).concat(Array.from(document.querySelectorAll('img')).filter(o=>o?.src.endsWith('svg')) ).forEach(o=>o.remove())`
-    - This is served with a very locked-down Content Security Policy so your browser will *not* go outside Yamanote to fetch JavaScript or any assets.
+Open http://localhost:3456 or `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456` in your browser and start using Yamanote! Refer to the GIF [above](#setup) to see the initial login, bookmarklet setup, and a first bookmark.
 
 ## Dev features
 
