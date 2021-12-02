@@ -1,8 +1,8 @@
 javascript: (function() {
-  q = location.href;
-  p = document.title;
-  s = window.getSelection().toString();
-  obj = {
+  const q = location.href;
+  const p = document.title;
+  const s = window.getSelection().toString();
+  const obj = {
     _type: 'addBookmarkOrComment',
     url: document.location.href || '',
     title: document.title || '',
@@ -12,7 +12,7 @@ javascript: (function() {
   };
   const yamanote = 'http://localhost:3456';
 
-  t = window.open(yamanote + '/popup', 'Yamanote', 'toolbar=no,width=100,height=100');
+  const t = window.open(yamanote + '/popup', 'Yamanote', 'toolbar=no,width=200,height=200');
   interval = setInterval(() => {
     t.postMessage(JSON.stringify(obj), yamanote);
     console.log('posted…')
