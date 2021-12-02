@@ -2,7 +2,6 @@ var randReceived = new Set();
 window.addEventListener("message", async (event) => {
   // console.log('eventor!',event);
   event.source.postMessage('{}'); // cancel the interval in the bookmarklet
-  document.body.append('going to post');
   let origin = '*';
   {
     // we only need to parse the payload to
@@ -21,6 +20,7 @@ window.addEventListener("message", async (event) => {
     const url = new URL(obj.url);
     origin = url.origin;
   } catch {}
+  document.body.append('going to post');
   const res = await fetch(
       '/bookmark', {method: 'POST', mode: 'cors', body: event.data, headers: {'Content-Type': 'application/json'}});
   if (res.ok) {
