@@ -1,9 +1,23 @@
+var randReceived = new Set();
 window.addEventListener("message", async (event) => {
   // console.log('eventor!',event);
-  document.body.append('going to await');
+  event.source.postMessage('{}'); // cancel the interval in the bookmarklet
+  document.body.append('going to post');
   let origin = '*';
-  try {
+  {
+    // we only need to parse the payload to
+    // 1- get the origin for postMessage (extra security, maybe unnecessary)
+    // 2- to get `rand`, to detect whether this is a duplicate message from the interval
     const obj = JSON.parse(event.data);
+    if (obj.rand) {
+      if (randReceived.has(obj.rand)) {
+        // this is a duplicate message
+        return;
+      }
+      randReceived.add(obj.rand);
+    }
+  }
+  try {
     const url = new URL(obj.url);
     origin = url.origin;
   } catch {}
@@ -14,9 +28,9 @@ window.addEventListener("message", async (event) => {
     if (reply && reply.htmlWanted) {
       // can we avoid this round-trip JSON decode-encode?
       event.source.postMessage(JSON.stringify(reply), origin);
-      document.body.append('… asking for HTML');
+      document.body.append('… asking for HTML… ');
     } else {
-      document.body.append('… OK!');
+      document.body.append('… OK! You can close me!');
       window.close();
     }
   } else {
