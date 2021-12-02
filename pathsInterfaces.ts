@@ -76,5 +76,6 @@ export const Env = t.type({
   GITHUB_CLIENT_SECRET: t.string,
   SESSION_SECRET: t.string,
   GITHUB_ID_ALLOWLIST: t.string,
+  URL: t.string,
 });
 export type Env = t.TypeOf<typeof Env>;

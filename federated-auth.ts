@@ -63,7 +63,7 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
       {
         clientID: env.GITHUB_CLIENT_ID,
         clientSecret: env.GITHUB_CLIENT_SECRET,
-        callbackURL: `/auth/github/callback`,
+        callbackURL: `${env.URL}/auth/github/callback`,
       },
       // This function converts the GitHub profile into our app's object representing the user
       (accessToken, refreshToken, profile, cb) => cb(null, findOrCreateGithub(db, profile, githubAllowlist))));

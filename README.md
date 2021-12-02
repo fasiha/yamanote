@@ -61,11 +61,13 @@ These are technical notes on how to set up Yamanote to run on a server, intended
     - Your answers to “Application name” and “Homepage URL” are not important, but **“Authorization callback URL” is really important**.
     - If you just want to use Yamanote on the same computer as it’s running on, you can use `http://localhost:3456/auth/github/callback`
     - If you want to use it on any computer in your home network, use `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456/auth/github/callback`. If you don’t know your computer’s local IP address, look up instructions for your operating system (on Linux and macOS, you can run `ifconfig`; on Windows I think you right-click something…?), or look at your router’s list of connected devices.
+    - If you’ve deployed this to Glitch, use `https://<YOUR GLITCH PROJECT NAME>.glitch.me/auth/github/callback`
 1. Create a new `.env` by copying the example: run `cp env.example .env`
 1. Open `.env` in your favorite text editor and fill in the data it needs:
     - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` come from GitHub when you register your new application above
     - `GITHUB_ID_ALLOWLIST` is a comma-separated list of numeric GitHub IDs that Yamanote will allow to log in. Nota bene, *this is not usernames* because GitHub allows you to change your username, which is a really nice and important feature. To find my numeric GitHub, for example, go to https://api.github.com/users/fasiha and look for the `id` field: you’ll see mine is `id: 37649`
     - `SESSION_SECRET` should be a long random string that the Express.js web server will use to encrypt session cookies. If you need inspiration, type in `node` to start the Node REPL and run the following to generate 25 random bytes and stringify them: `crypto.randomBytes(25).toString('base64url')`
+    - `URL` is the *origin* part of the **“Authorization callback URL”** you gave GitHub, so just `http://localhost:3456` or `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456` or `https://<YOUR GLITCH PROJECT NAME>.glitch.me` or whatever.
 1. You’re finally ready to start the Yamanote server! Run `npm run serve`
 
 Open http://localhost:3456 or `http://<YOUR COMPUTER'S LOCAL IP ADDRESS>:3456` in your browser. Sign in with GitHub.
