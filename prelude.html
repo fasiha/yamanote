@@ -2,6 +2,8 @@
 <html>
 
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Yamanote app 山の手</title>
   <style>
     div.bookmark {
@@ -10,7 +12,7 @@
 
     div.comment {
       padding-bottom: 0.25em;
-      line-height: 1.25em;
+      overflow-wrap: break-word;
     }
 
     pre.unrendered {
@@ -21,6 +23,35 @@
 
     a.emojilink {
       text-decoration: none;
+    }
+
+    textarea {
+      width: 100%;
+      height: 40vh;
+      font: 20px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    }
+
+    body {
+      max-width: 80rem;
+      margin: 10px auto;
+      padding: 0 10px;
+      font: 20px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+      color: #444
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        color: #ccc;
+        background: #111;
+      }
+
+      a:link {
+        color: #5bf
+      }
+
+      a:visited {
+        color: #ccf
+      }
     }
   </style>
   <script src="prelude.js">  </script>
