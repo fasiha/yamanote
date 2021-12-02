@@ -414,6 +414,7 @@ export async function startServer(db: Db, {
   const upload = multer({storage: multer.memoryStorage(), limits: {fieldSize}});
 
   const app = express.default();
+  app.set('trust proxy', 1);
   app.use(require('cors')());
   app.use(require('compression')());
   app.use(bodyParser.json({limit: fieldSize}));
