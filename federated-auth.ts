@@ -2,7 +2,7 @@ import sqlite3 from 'better-sqlite3';
 import KnexSession from 'connect-session-knex';
 import {randomBytes} from 'crypto';
 import * as express from 'express';
-import {Express, RequestHandler} from 'express';
+import {Express, NextFunction, Request, RequestHandler, Response} from 'express';
 import Knex, {Knex as KnexType} from 'knex';
 import passport from 'passport';
 import GitHubStrategy from 'passport-github';
@@ -145,7 +145,7 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
 // https://dsackerman.com/passportjs-using-multiple-strategies-on-the-same-endpoint/
 const bearerAuthentication = passport.authenticate(BEARER_NAME, {session: false});
 
-export const ensureAuthenticated: RequestHandler = (req, res, next) => {
+export function ensureAuthenticated<P>(req: Request<P>, res: Response, next: NextFunction) {
   // check session (i.e., GitHub, etc.)
   if (req.isAuthenticated && req.isAuthenticated()) {
     next();
@@ -153,6 +153,7 @@ export const ensureAuthenticated: RequestHandler = (req, res, next) => {
     bearerAuthentication(req, res, next);
   }
 };
+
 // Via @jaredhanson: https://gist.github.com/joshbirk/1732068#gistcomment-80892
 export const ensureUnauthenticated: RequestHandler = (req, res, next) => {
   if (req.isAuthenticated()) { return res.redirect('/'); }
