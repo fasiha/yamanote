@@ -38,13 +38,11 @@ import {
 } from './renderers.js';
 import {groupBy2} from './utils';
 
-const SCHEMA_VERSION_REQUIRED = 3;
-const HASH_ALGORITHM = 'sha256';
-const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3456;
-
 let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
 let ALL_COMMENTS: Map<number|bigint, string> = new Map();
 
+const SCHEMA_VERSION_REQUIRED = 3;
+const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3456;
 /**
  * Save a new backup after a ~month
  */
@@ -340,7 +338,7 @@ function sleep(milliseconds: number): Promise<void> {
 }
 
 export function sha256hash(content: Buffer) {
-  const hash = createHash(HASH_ALGORITHM);
+  const hash = createHash('sha256');
   hash.update(content);
   return hash.digest('base64url');
 }
