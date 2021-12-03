@@ -34,9 +34,9 @@ All three of these do much more than helping me keep track of my reading and so 
 
 ## Features
 
-So here’s what it looks like these days, a couple of weeks after development started:
+So here’s what it looks like these days, about three weeks after development started:
 
-![Screenshot as of 2021-11-30](./screenshot.png)
+![Screenshot as of 2021-12-03](./screenshot.png)
 
 And here’s a prose description of the above: Yamanote is
 - a bookmarklet-based bookmarking web app.
@@ -60,6 +60,7 @@ And here’s a prose description of the above: Yamanote is
 - 💁 shows you your Yamanote archive of the webpage. It might look really weird 😢, Twitter for example looks like crap unless you do some DOM manipulation.
     - Twitter looks ok once you delete all SVGs: `Array.from(document.querySelectorAll('svg')).concat(Array.from(document.querySelectorAll('img')).filter(o=>o?.src.endsWith('svg')) ).forEach(o=>o.remove())`
     - This is served with a very locked-down Content Security Policy so your browser will *not* go outside Yamanote to fetch JavaScript or any assets.
+- 💥 takes you to *just* this bookmark, where you can *delete* it 😱. There’s *no undelete button* yet, **but** a backup will be created so with a little bit of programming your bookmark (and comments and backups) all can come back.
 
 ## Setup
 
