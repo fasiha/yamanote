@@ -2,7 +2,7 @@ import {encode} from 'html-entities';
 import {URL} from 'url';
 
 import * as Table from './DbTablesV1';
-import {Db, Selected} from "./pathsInterfaces";
+import {Db, FullRow, Selected, SelectedAll} from "./pathsInterfaces";
 
 export function rerenderComment(db: Db,
                                 idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint)): string {
@@ -36,15 +36,9 @@ function encodeTitle(title: string): string {
   return encode(title.replace(/[\n\r]+/g, '↲')); // alternatives include pilcrow, ¶
 }
 
-// as in, don't recurse into comments to render those: assume those are fine.
-export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNullable<Selected<Table.bookmarkRow>>,
-                                     preexistingRenders?: {render: string}[]) {
-  const bookmark: Table.bookmarkRow = typeof idOrBookmark === 'object'
-                                          ? idOrBookmark
-                                          : db.prepare(`select * from bookmark where id=$id`).get({id: idOrBookmark})
-  const id = typeof idOrBookmark === 'object' ? idOrBookmark.id : idOrBookmark;
-  if (!bookmark) { throw new Error('unknown bookmark ' + idOrBookmark); }
-  const {url, title} = bookmark;
+type PartBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'>;
+export function renderBookmarkHeader(partBookmark: PartBookmark): [string, string] {
+  const {id, url, title} = partBookmark;
   const anchor = `bookmark-${id}`;
 
   let header = '';
@@ -64,20 +58,37 @@ export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNu
   header += ` <a title="Add a comment" id="add-comment-button-${
       id}" href="#" class="emojilink add-comment-button comment-button">💌</a>`;
   header += ` <a title="See raw snapshot" href="/backup/${id}" class="emojilink">💁</a>`;
+  const pre = `<div id="${anchor}" class="bookmark"><span class="bookmark-header">${header}</span>`
+  const post = `</div>`;
+  return [pre, post];
+}
+
+// as in, don't recurse into comments to render those: assume those are fine.
+export function rerenderJustBookmark(db: Db, idOrPartBookmark: (number|bigint)|PartBookmark,
+                                     preexistingRenders?: {render: string}[]) {
+  const bookmark = typeof idOrPartBookmark === 'object'
+                       ? idOrPartBookmark
+                       : db.prepare<Pick<PartBookmark, 'id'>>(`select url, title, id from bookmark where id=$id`).get({
+                           id: idOrPartBookmark
+                         }) as PartBookmark;
+  const id = typeof idOrPartBookmark === 'object' ? idOrPartBookmark.id : idOrPartBookmark;
+  if (!bookmark) { throw new Error('unknown bookmark ' + idOrPartBookmark); }
+  const [pre, post] = renderBookmarkHeader(bookmark);
 
   let commentsRender = '';
   if (!preexistingRenders) {
-    const rows = db.prepare(`select render from comment where bookmarkId=$id order by createdTime desc`).all({id});
+    const rows: SelectedAll<Pick<Table.commentRow, 'render'>> =
+        db.prepare<{id: number | bigint}>(`select render from comment where bookmarkId=$id order by createdTime desc`)
+            .all({id});
     commentsRender = rows.map(o => o.render).join('\n');
   } else {
     commentsRender = preexistingRenders.map(o => o.render).join('\n');
   }
 
   // As a super-fast way to update renders upon re-bookmarking, let the entire header live on a single line
-  const render = `<div id="${anchor}" class="bookmark"><span class="bookmark-header">${header}</span>
-${commentsRender}
-</div>`;
-  db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
+  const render = [pre, commentsRender, post].join('\n');
+  db.prepare<Pick<Table.bookmarkRow, 'render'|'renderedTime'|'id'>>(
+        `update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)
       .run({render, renderedTime: Date.now(), id});
 }
 
