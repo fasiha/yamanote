@@ -20,6 +20,7 @@ import {
   AddHtmlPayload,
   AskForHtmlPayload,
   backupPath,
+  bookmarkIdPath,
   bookmarkPath,
   commentPath,
   Db,
@@ -533,6 +534,41 @@ export async function startServer(db: Db, {
     }
     assert(typeof msg === 'string', 'non-200 must be text');
     res.status(code).send(msg);
+  });
+  app.get(bookmarkIdPath.pattern, ensureAuthenticated, (req, res) => {
+    const user = reqToUser(req);
+    const bookmarkId = parseInt(req.params.id);
+    const row: Selected<{render: string}> = db.prepare<{userId: number | bigint, bookmarkId: number | bigint}>(
+                                                  `select render from bookmark where userId=$userId and id=$bookmarkId`)
+                                                .get({userId: user.id, bookmarkId});
+    if (row) {
+      const prelude = readFileSync('prelude.html', 'utf8');
+      const body = row.render;
+      const link = bookmarkIdPath({id: req.params.id});
+      const deleter = `<p class="danger delete-bookmark">
+<button id="delete-comment-button-${
+          bookmarkId}">Delete bookmark, comments, and backups?</button> A backup will be created so this can be undone manually, but as of now there’s no easy “undo” button.
+<p>`;
+      res.status(200).send([prelude, body, deleter].join('\n'));
+      return;
+    }
+    res.status(401).send();
+  });
+  app.delete(bookmarkIdPath.pattern, ensureAuthenticated, (req, res) => {
+    const user = reqToUser(req);
+    const bookmarkId = parseInt(req.params.id);
+    if (userBookmarkAuth(db, user, bookmarkId)) {
+      console.log('Deleting ' + bookmarkId);
+      const p = {bookmarkId};
+      db.prepare<{bookmarkId: number}>(`delete from backup where bookmarkId=$bookmarkId`).run(p);
+      db.prepare<{bookmarkId: number}>(`delete from media where bookmarkId=$bookmarkId`).run(p);
+      db.prepare<{bookmarkId: number}>(`delete from comment where bookmarkId=$bookmarkId`).run(p);
+      db.prepare<{bookmarkId: number}>(`delete from bookmark where id=$bookmarkId`).run(p);
+      cacheAllBookmarks(db, user.id);
+      res.status(200).send();
+      return;
+    }
+    res.status(401).send();
   });
 
   // backups

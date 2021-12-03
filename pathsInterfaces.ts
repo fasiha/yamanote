@@ -5,6 +5,7 @@ import {path} from 'static-path';
 // export const filenamePath = path('/media/:filename');
 export const mediaPath = path('/media/:bookmarkId');
 export const bookmarkPath = path('/bookmark');
+export const bookmarkIdPath = path('/bookmark/:id');
 export const backupPath = path('/backup/:bookmarkId');
 export const commentPath = path('/comment/:commentId');
 export const tokenPath = path('/auth/token');

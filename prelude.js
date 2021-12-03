@@ -181,4 +181,23 @@ window.onload = () => {
       e.target.replaceWith(div); // replace the emoji <a> with this
     });
   }
+
+  const deleteBookmarkButton = document.querySelector('.delete-bookmark button');
+  console.log('hello', deleteBookmarkButton)
+  if (deleteBookmarkButton && deleteBookmarkButton.id) {
+    const fullId = deleteBookmarkButton.id;
+    const id = parseInt(fullId.slice(fullId.lastIndexOf('-') + 1));
+    if (id && isFinite(id)) {
+      deleteBookmarkButton.onclick = async e => {
+        const res = await fetch(`/bookmark/${id}`, {method: 'DELETE'});
+        if (res.ok) {
+          window.location = '/';
+        } else {
+          const err = `Error while deleting: ${res.status} ${res.statusText}`;
+          console.error(err);
+          alert(err);
+        }
+      }
+    }
+  }
 };

@@ -61,6 +61,7 @@ export function renderBookmarkHeader(partBookmark: PartBookmark): [string, strin
   header += ` <a title="Add a comment" id="add-comment-button-${
       id}" href="#" class="emojilink add-comment-button comment-button">💌</a>`;
   header += ` <a title="See raw snapshot" href="/backup/${id}" class="emojilink">💁</a>`;
+  header += ` <a title="See just this bookmark (and delete it)" href="/bookmark/${id}" class="emojilink">💥</a>`;
   const pre = `<div id="${anchor}" class="bookmark"><span class="bookmark-header">${header}</span>`
   const post = `</div>`;
   return [pre, post];
