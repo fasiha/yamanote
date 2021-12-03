@@ -601,15 +601,14 @@ export async function startServer(db: Db, {
   // metadata: sizes of various content
   app.get('/sizecheck', ensureAuthenticated, (req, res) => {
     const userId = reqToUser(req).id;
-    const backups:
-        {len: number, bookmarkId: string, url: string}[] = db.prepare<{userId: number | bigint}>(
-                                                                 `select length(content) as len, bookmarkId, url
-    from backup join bookmark on bookmark.id=backup.bookmarkId
-    where bookmark.userId=$userId
-    order by len desc limit 25`).all({userId});
+    const backups: {len: number, bookmarkId: string, url: string}[] = db.prepare<{userId: number | bigint}>(`
+        select length(content) as len, bookmarkId, url
+        from backup join bookmark on bookmark.id=backup.bookmarkId
+        where bookmark.userId=$userId
+        order by len desc limit 25`).all({userId});
 
-    const blobs = db.prepare<{userId: number | bigint}>(
-                        `select length(content) as len, blob.sha256, bookmarkId, path, bookmark.url
+    const blobs = db.prepare<{userId: number | bigint}>(`
+        select length(content) as len, blob.sha256, bookmarkId, path, bookmark.url
         from blob
         join media on blob.sha256=media.sha256
         join bookmark on media.bookmarkId=bookmark.id
