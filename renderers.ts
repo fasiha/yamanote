@@ -25,8 +25,11 @@ export function rerenderComment(db: Db,
   const anchorLink = ` <a title="Link to this comment" href="#${anchor}" class="emojilink">🔗</a>`;
   const editLink = ` <a title="Edit comment" id="edit-comment-button-${
       id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
-  const render = `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre>${
-      anchorLink}${editLink} ${timestamp}</div>`;
+  const render = `<div id="${anchor}" class="comment"><pre class="unrendered">
+${encode(comment.content)}
+</pre>
+${anchorLink}${editLink} ${timestamp}
+</div>`;
   db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
       .run({id, render, renderedTime: Date.now()});
   return render;

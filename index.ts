@@ -9,7 +9,7 @@ import multer from 'multer';
 import fetch from 'node-fetch';
 import assert from 'node:assert';
 import http from 'node:http';
-import * as srcsetlib from 'srcset';
+import srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV3';
 import {ensureAuthenticated, passportSetup, reqToUser} from './federated-auth';
@@ -30,13 +30,20 @@ import {
   SelectedAll,
   uniqueConstraintError
 } from './pathsInterfaces.js';
-import {fastUpdateBookmarkWithNewComment, rerenderComment, rerenderJustBookmark} from './renderers.js';
+import {
+  fastUpdateBookmarkWithNewComment,
+  renderBookmarkHeader,
+  rerenderComment,
+  rerenderJustBookmark
+} from './renderers.js';
+import {groupBy2} from './utils';
 
 const SCHEMA_VERSION_REQUIRED = 3;
 const HASH_ALGORITHM = 'sha256';
 const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3456;
 
 let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
+let ALL_COMMENTS: Map<number|bigint, string> = new Map();
 
 /**
  * Save a new backup after a ~month
@@ -91,6 +98,71 @@ function cacheAllBookmarks(db: Db, userId: bigint|number) {
   assert(!prelude.includes(BOOKMARKLET_NEEDLE), 'javascript has been inserted')
 
   ALL_BOOKMARKS.set(userId, prelude + renders);
+}
+function cacheAllComments(db: Db, userId: bigint|number) {
+  const commentsTimeSorted:
+      SelectedAll<Pick<Table.commentRow, 'render'|'bookmarkId'|'id'>&Pick<Table.bookmarkRow, 'url'|'title'>> =
+          db.prepare(`select comment.render, comment.id, bookmark.url, bookmark.title, bookmark.id as bookmarkId
+      from comment
+      join bookmark on bookmark.id=comment.bookmarkId
+      where bookmark.userId=1
+      order by comment.createdTime desc`)
+              .all();
+  var bookmarkIdToCommentIdToComment =
+      groupBy2(commentsTimeSorted, (x) => x.bookmarkId,
+               (x, group?: {comments: typeof commentsTimeSorted, commentIdToIdx: Map<number|bigint, number>}) => {
+                 if (group) {
+                   group.commentIdToIdx.set(x.id, group.commentIdToIdx.size);
+                   group.comments.push(x);
+                   return group;
+                 }
+                 return { comments: [x], commentIdToIdx: new Map([[x.id, 0]]) }
+               });
+  var bookmarkIdToHeader: Map<number|bigint, [string, string]> = new Map();
+  var renders =
+      commentsTimeSorted
+          .map((x, xid) => {
+            const bookmarkId = x.bookmarkId;
+            const sameBookmarkPrev = bookmarkId === commentsTimeSorted[xid - 1]?.bookmarkId;
+            const sameBookmarkNext = bookmarkId === commentsTimeSorted[xid + 1]?.bookmarkId
+
+            const group = bookmarkIdToCommentIdToComment.get(bookmarkId);
+            if (group === undefined) { throw new Error('1') }
+            const idx = group.commentIdToIdx.get(x.id);
+            if (idx === undefined) { throw new Error('2') }
+            const total = group.comments.length;
+            const thisNum = total - idx;
+            const prevId: undefined|number|bigint = group.comments[idx - 1]?.id;
+            const nextId: undefined|number|bigint = group.comments[idx + 1]?.id;
+            const prev = (prevId && !sameBookmarkPrev) ? `<a class="emojilink" href="#comment-${prevId}">👈</a>` : '';
+            const next = (nextId && !sameBookmarkNext) ? `<a class="emojilink" href="#comment-${nextId}">👉</a>` : '';
+            const thisVsTotal = (prev || next) ? `(${thisNum}/${total})` : '';
+            const coda = ['', prev, next, thisVsTotal].join(' ') + '\n';
+
+            const needle = '</div>';
+            if (!x.render.endsWith(needle)) { throw new Error('3') }
+            const commentRender = x.render.slice(0, -(needle.length)) + coda + needle;
+
+            let bookmarkHeader: [string, string];
+            if (bookmarkIdToHeader.has(bookmarkId)) {
+              bookmarkHeader = bookmarkIdToHeader.get(bookmarkId)?.slice() as any; // typescript pacification
+            } else {
+              bookmarkHeader = renderBookmarkHeader({id: bookmarkId, url: x.url, title: x.title})
+              bookmarkIdToHeader.set(bookmarkId, bookmarkHeader.slice() as [string, string]);
+            }
+            if (sameBookmarkPrev) { bookmarkHeader[0] = ''; }
+            if (sameBookmarkNext) { bookmarkHeader[1] = ''; }
+            return [bookmarkHeader[0], commentRender, bookmarkHeader[1]].join('');
+          })
+          .join('\n');
+
+  const js = readFileSync('bookmarklet.js', 'utf8');
+  const BOOKMARKLET_NEEDLE = '$BOOKMARKLET_PAYLOAD';
+  const prelude =
+      readFileSync('prelude.html', 'utf8') + readFileSync('topstuff.html', 'utf8').replace(BOOKMARKLET_NEEDLE, js);
+  assert(!prelude.includes(BOOKMARKLET_NEEDLE), 'javascript has been inserted')
+
+  ALL_COMMENTS.set(userId, prelude + renders);
 }
 
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
@@ -427,6 +499,15 @@ export async function startServer(db: Db, {
       const user = reqToUser(req);
       if (!ALL_BOOKMARKS.has(user.id)) { cacheAllBookmarks(db, user.id); }
       res.send(ALL_BOOKMARKS.get(user.id));
+      return;
+    }
+    res.sendFile(__dirname + '/welcome.html');
+  });
+  app.get('/c', (req, res) => {
+    if (req.user) {
+      const user = reqToUser(req);
+      if (!ALL_COMMENTS.has(user.id)) { cacheAllComments(db, user.id); }
+      res.send(ALL_COMMENTS.get(user.id));
       return;
     }
     res.sendFile(__dirname + '/welcome.html');
