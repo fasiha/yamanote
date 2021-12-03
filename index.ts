@@ -83,11 +83,14 @@ function cacheAllBookmarks(db: Db, userId: bigint|number) {
   const res: Pick<Table.bookmarkRow, 'render'>[] =
       db.prepare(`select render from bookmark where userId=$userId order by modifiedTime desc`).all({userId});
   const renders = res.map(o => o.render).join('\n');
+
   const js = readFileSync('bookmarklet.js', 'utf8');
-  const prelude = readFileSync('prelude.html', 'utf8') +
-                  `<p>Bookmarklet: <a id="bookmarklet" href="${
-                      js}">山の手</a>. Code: <a href="https://github.com/fasiha/yamanote">GitHub</a></p>`;
-  ALL_BOOKMARKS.set(userId, prelude + (renders || ''));
+  const BOOKMARKLET_NEEDLE = '$BOOKMARKLET_PAYLOAD';
+  const prelude =
+      readFileSync('prelude.html', 'utf8') + readFileSync('topstuff.html', 'utf8').replace(BOOKMARKLET_NEEDLE, js);
+  assert(!prelude.includes(BOOKMARKLET_NEEDLE), 'javascript has been inserted')
+
+  ALL_BOOKMARKS.set(userId, prelude + renders);
 }
 
 function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {

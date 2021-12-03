@@ -109,6 +109,7 @@ window.onload = () => {
                 } else {
                   const err = `${x.status} ${x.statusText}`;
                   console.error(err);
+                  alert(err);
                 }
               });
         };
@@ -116,4 +117,68 @@ window.onload = () => {
     }
   };
   for (const a of document.querySelectorAll('a.comment-button')) { a.addEventListener('click', handler); }
+
+  // To create a brand new bookmark without bookmarklet
+  const newBookmarkButton = document.querySelector('a#add-new-bookmark');
+  if (newBookmarkButton) {
+    newBookmarkButton.addEventListener('click', e => {
+      e.preventDefault();
+
+      const title = document.createElement('input');
+      title.size = 30;
+      title.type = 'input';
+      title.id = 'new-bookmark-title';
+      const titleLabel = document.createElement('label');
+      titleLabel.append('Title? ');
+      titleLabel.htmlFor = title.id;
+
+      const url = document.createElement('input');
+      url.size = 30;
+      url.type = 'url';
+      url.id = 'new-bookmark-url';
+      const urlLabel = document.createElement('label');
+      urlLabel.append('URL? ');
+      urlLabel.htmlFor = url.id;
+
+      const textarea = document.createElement('textarea');
+      textarea.id = 'new-bookmark-comment';
+      const textareaLabel = document.createElement('label');
+      textareaLabel.append('Comment? ');
+      textareaLabel.htmlFor = textarea.id;
+
+      const button = document.createElement('button');
+      button.append('Submit');
+      button.onclick = e => {
+        const obj = {
+          _type: 'addBookmarkOrComment',
+          url: url.value,
+          title: title.value,
+          comment: textarea.value,
+        };
+        console.log(obj);
+        fetch('/bookmark', {method: 'POST', body: JSON.stringify(obj), headers: {'Content-Type': 'application/json'}})
+            .then(x => {
+              if (x.ok) {
+                location.reload();
+              } else {
+                const err = `${x.status} ${x.statusText}`;
+                console.error(err);
+                alert(err);
+              }
+            });
+      };
+
+      const div = document.createElement('div');
+      div.appendChild(titleLabel);
+      div.appendChild(title);
+      div.appendChild(document.createElement('br'));
+      div.appendChild(urlLabel);
+      div.appendChild(url);
+      div.appendChild(document.createElement('br'));
+      div.appendChild(textareaLabel);
+      div.appendChild(textarea);
+      div.appendChild(button);
+      e.target.replaceWith(div); // replace the emoji <a> with this
+    });
+  }
 };
