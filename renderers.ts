@@ -17,16 +17,16 @@ export function rerenderComment(db: Db,
   }
 
   let anchor = `comment-${id}`;
-  let timestamp = `<a href="#${anchor}">${(new Date(comment.createdTime)).toISOString()}</a>`;
+  let timestamp = (new Date(comment.createdTime)).toISOString();
   if (comment.createdTime !== comment.modifiedTime) {
     const mod = (new Date(comment.modifiedTime)).toISOString();
     timestamp += ` → ${mod}`;
   }
-
+  const anchorLink = ` <a title="Link to this comment" href="#${anchor}" class="emojilink">🔗</a>`;
   const editLink = ` <a title="Edit comment" id="edit-comment-button-${
       id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
-  const render = `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre> ${
-      timestamp}${editLink}</div>`;
+  const render = `<div id="${anchor}" class="comment"><pre class="unrendered">${encode(comment.content)}</pre>${
+      anchorLink}${editLink} ${timestamp}</div>`;
   db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
       .run({id, render, renderedTime: Date.now()});
   return render;
@@ -60,7 +60,7 @@ export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNu
   } else if (title) {
     header = encodeTitle(title);
   }
-  header += ` <a title="Link to here" href="#${anchor}" class="emojilink">🔗</a>`;
+  header += ` <a title="Link to this bookmark" href="#${anchor}" class="emojilink">🔗</a>`;
   header += ` <a title="Add a comment" id="add-comment-button-${
       id}" href="#" class="emojilink add-comment-button comment-button">💌</a>`;
   header += ` <a title="See raw snapshot" href="/backup/${id}" class="emojilink">💁</a>`;
@@ -74,7 +74,7 @@ export function rerenderJustBookmark(db: Db, idOrBookmark: (number|bigint)|NonNu
   }
 
   // As a super-fast way to update renders upon re-bookmarking, let the entire header live on a single line
-  const render = `<div id="${anchor}" class="bookmark">${header}
+  const render = `<div id="${anchor}" class="bookmark"><span class="bookmark-header">${header}</span>
 ${commentsRender}
 </div>`;
   db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime where id=$id`)

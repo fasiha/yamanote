@@ -7,11 +7,19 @@
   <title>Yamanote app 山の手</title>
   <style>
     div.bookmark {
-      padding-bottom: 0.5em;
+      padding-top: 0.4em;
+      border-bottom: #ddd dotted;
+    }
+
+    .bookmark-header {
+      font-size: 120%;
+    }
+
+    div.comment:not(:last-child) {
+      border-bottom: 2px #ddd dotted;
     }
 
     div.comment {
-      padding-bottom: 0.25em;
       overflow-wrap: break-word;
     }
 
@@ -52,6 +60,15 @@
       a:visited {
         color: #ccf
       }
+
+      div.bookmark {
+        border-bottom: #222 dotted;
+      }
+
+      div.comment:not(:last-child) {
+        border-bottom: 2px #222 dotted;
+      }
+
     }
   </style>
   <script src="prelude.js">  </script>
