@@ -97,6 +97,7 @@ function cacheAllBookmarks(db: Db, userId: bigint|number) {
   assert(!prelude.includes(BOOKMARKLET_NEEDLE), 'javascript has been inserted')
 
   ALL_BOOKMARKS.set(userId, prelude + renders);
+  cacheAllComments(db, userId);
 }
 function cacheAllComments(db: Db, userId: bigint|number) {
   const commentsTimeSorted:
