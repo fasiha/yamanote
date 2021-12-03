@@ -26,8 +26,7 @@ export function rerenderComment(db: Db,
   const editLink = ` <a title="Edit comment" id="edit-comment-button-${
       id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
   const render = `<div id="${anchor}" class="comment"><pre class="unrendered">
-${encode(comment.content)}
-</pre>
+${encode(comment.content)}</pre>
 ${anchorLink}${editLink} ${timestamp}
 </div>`;
   db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
