@@ -183,7 +183,6 @@ window.onload = () => {
   }
 
   const deleteBookmarkButton = document.querySelector('.delete-bookmark button');
-  console.log('hello', deleteBookmarkButton)
   if (deleteBookmarkButton && deleteBookmarkButton.id) {
     const fullId = deleteBookmarkButton.id;
     const id = parseInt(fullId.slice(fullId.lastIndexOf('-') + 1));
