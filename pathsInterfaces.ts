@@ -26,7 +26,9 @@ export function uniqueConstraintError(e: unknown): boolean {
  *
  * The below says "*All* keys are required and non-nullable".
  */
-export type FullRow<T> = Required<{[k in keyof T]: NonNullable<T[k]>}>;
+export type FullRow<T> = {
+  [k in keyof T] -?: NonNullable<T[k]>
+};
 export type Selected<T> = FullRow<T>|undefined;
 export type SelectedAll<T> = FullRow<T>[];
 

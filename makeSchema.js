@@ -14,7 +14,7 @@ done
 Except, below, we'll probably only run this for ONE schema version.
 */
 
-var VERSIONS = [3];
+var VERSIONS = [3, 4];
 
 var {rm, readFile, writeFile} = require('fs/promises');
 var sqlite3 = require('better-sqlite3');

@@ -5,9 +5,8 @@ function columns(db: Db, table: string): string[] {
   return db.prepare<{table: string}>(`SELECT name FROM PRAGMA_TABLE_INFO($table);`).all({table}).map(o => o.name);
 }
 
-export function makeBackupTriggers(db: Db, table: string, ignoreColumns: Set<string> = new Set()) {
-  // Largely following https://blog.budgetwithbuckets.com/2018/08/27/sqlite-changelog.html
-  const sql = `
+// Largely following https://blog.budgetwithbuckets.com/2018/08/27/sqlite-changelog.html
+const JUST_INSERT_TABLE = `
 -- Change log table
 CREATE TABLE IF NOT EXISTS _change_log (
     id INTEGER PRIMARY KEY,
@@ -17,6 +16,13 @@ CREATE TABLE IF NOT EXISTS _change_log (
     obj_id INTEGER,
     oldvals TEXT
 );
+`;
+
+export function justCreateBackupTable(db: Db) { db.exec(JUST_INSERT_TABLE); }
+
+export function makeBackupTriggers(db: Db, table: string, ignoreColumns: Set<string> = new Set()) {
+  const sql = `
+${JUST_INSERT_TABLE}
 
 -- Clear triggers
 DROP TRIGGER IF EXISTS $TABLE_track_insert;
