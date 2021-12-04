@@ -33,6 +33,7 @@ import {
 } from './pathsInterfaces.js';
 import {
   fastUpdateBookmarkWithNewComment,
+  PartBookmark,
   renderBookmarkHeader,
   rerenderComment,
   rerenderJustBookmark
@@ -162,10 +163,10 @@ function cacheAllComments(db: Db, userId: bigint|number) {
   ALL_COMMENTS.set(userId, prelude + renders);
 }
 
-function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
+function addCommentToBookmark(db: Db, comment: string, bookmark: PartBookmark): string {
   const now = Date.now();
   const commentRow: Table.commentRow = {
-    bookmarkId: bookmarkId,
+    bookmarkId: bookmark.id,
     content: comment,
     createdTime: now,
     modifiedTime: now,
@@ -175,7 +176,7 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
   const result = db.prepare(`insert into comment (bookmarkId, content, createdTime, modifiedTime, render, renderedTime) 
   values ($bookmarkId, $content, $createdTime, $modifiedTime, $render, $renderedTime)`)
                      .run(commentRow);
-  return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
+  return rerenderComment(db, {...commentRow, id: result.lastInsertRowid}, bookmark)
 }
 
 function createNewBookmark(db: Db, url: string, title: string, comment: string, userId: number|bigint): number|bigint {
@@ -195,7 +196,7 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string, 
           .run(bookmarkRow)
 
   const id = insertResult.lastInsertRowid;
-  const commentRender = addCommentToBookmark(db, comment, id);
+  const commentRender = addCommentToBookmark(db, comment, {id, url, title});
 
   rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
   return id;
@@ -203,7 +204,7 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string, 
 
 function bodyToBookmark(db: Db, body: Record<string, any>,
                         userId: number|bigint): [number, string|Record<string, any>] {
-  type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'>>;
+  type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'>>;
 
   {
     const res = AddBookmarkOrCommentPayload.decode(body);
@@ -222,14 +223,13 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
         if (quote && comment) { comment = '> ' + comment.replace(/\n/g, '\n> '); }
 
         const bookmark: SmallBookmark =
-            db.prepare(
-                  `select id, render, modifiedTime from bookmark where url=$url and title=$title and userId=$userId`)
+            db.prepare(`select id, render from bookmark where url=$url and title=$title and userId=$userId`)
                 .get({title, url, userId});
 
         if (bookmark) {
           // existing bookmark
           id = bookmark.id;
-          const commentRender = addCommentToBookmark(db, comment, id);
+          const commentRender = addCommentToBookmark(db, comment, {id, url, title});
           fastUpdateBookmarkWithNewComment(db, bookmark.render, id, commentRender);
 
           if (askForHtml) {
@@ -269,7 +269,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
     if (res._tag === 'Right') {
       const {id, comment} = res.right;
       const bookmark: SmallBookmark =
-          db.prepare(`select id, render, modifiedTime from bookmark where id=$id and userId=$userId`).get({id, userId});
+          db.prepare(`select id, render from bookmark where id=$id and userId=$userId`).get({id, userId});
       if (bookmark) {
         fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, id));
         cacheAllBookmarks(db, userId);
