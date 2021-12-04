@@ -39,9 +39,9 @@ function encodeTitle(title: string): string {
 }
 
 type PartBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'>;
-export function renderBookmarkHeader(partBookmark: PartBookmark): [string, string] {
+export function renderBookmarkHeader(partBookmark: PartBookmark, idSuffix: string = ''): [string, string] {
   const {id, url, title} = partBookmark;
-  const anchor = `bookmark-${id}`;
+  const anchor = `bookmark-${id}${idSuffix}`;
 
   let header = '';
   if (url && title) {

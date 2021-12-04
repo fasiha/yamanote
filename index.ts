@@ -118,7 +118,6 @@ function cacheAllComments(db: Db, userId: bigint|number) {
                  }
                  return { comments: [x], commentIdToIdx: new Map([[x.id, 0]]) }
                });
-  var bookmarkIdToHeader: Map<number|bigint, [string, string]> = new Map();
   var renders =
       commentsTimeSorted
           .map((x, xid) => {
@@ -143,15 +142,13 @@ function cacheAllComments(db: Db, userId: bigint|number) {
             if (!x.render.endsWith(needle)) { throw new Error('3') }
             const commentRender = x.render.slice(0, -(needle.length)) + coda + needle;
 
-            let bookmarkHeader: [string, string];
-            if (bookmarkIdToHeader.has(bookmarkId)) {
-              bookmarkHeader = bookmarkIdToHeader.get(bookmarkId)?.slice() as any; // typescript pacification
-            } else {
-              bookmarkHeader = renderBookmarkHeader({id: bookmarkId, url: x.url, title: x.title})
-              bookmarkIdToHeader.set(bookmarkId, bookmarkHeader.slice() as [string, string]);
+            const suffix = total > 1 ? `-${thisNum}-of-${total}` : '';
+            let bookmarkHeader = ['', ''];
+            if (!sameBookmarkPrev || !sameBookmarkNext) {
+              bookmarkHeader = renderBookmarkHeader({id: bookmarkId, url: x.url, title: x.title}, suffix)
+              if (sameBookmarkPrev) { bookmarkHeader[0] = ''; }
+              if (sameBookmarkNext) { bookmarkHeader[1] = ''; }
             }
-            if (sameBookmarkPrev) { bookmarkHeader[0] = ''; }
-            if (sameBookmarkNext) { bookmarkHeader[1] = ''; }
             return [bookmarkHeader[0], commentRender, bookmarkHeader[1]].join('');
           })
           .join('\n');
