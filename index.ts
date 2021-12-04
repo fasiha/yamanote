@@ -187,9 +187,11 @@ function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint
     siblingIdx: add1(existingComments),
     renderedTime: -1, // again, will be overwritten
   };
-  const result = db.prepare(`insert into comment (bookmarkId, content, createdTime, modifiedTime, render, renderedTime) 
-  values ($bookmarkId, $content, $createdTime, $modifiedTime, $render, $renderedTime)`)
-                     .run(commentRow);
+  const result =
+      db.prepare<Table.commentRow>(
+            `insert into comment (bookmarkId, content, createdTime, modifiedTime, siblingIdx, innerRender, fullRender, renderedTime)
+            values ($bookmarkId, $content, $createdTime, $modifiedTime, $siblingIdx, $innerRender, $fullRender, $renderedTime)`)
+          .run(commentRow);
   return rerenderComment(db, {...commentRow, id: result.lastInsertRowid})
 }
 
@@ -206,8 +208,9 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string, 
     renderedTime: now, // ditto
   };
   const insertResult =
-      db.prepare(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render, renderedTime)
-        values ($userId, $url, $title, $createdTime, $modifiedTime, $render, $renderedTime)`)
+      db.prepare<Table.bookmarkRow>(
+            `insert into bookmark (userId, url, title, createdTime, modifiedTime, numComments, render, renderedTime)
+            values ($userId, $url, $title, $createdTime, $modifiedTime, $numComments, $render, $renderedTime)`)
           .run(bookmarkRow)
 
   const id = insertResult.lastInsertRowid;
