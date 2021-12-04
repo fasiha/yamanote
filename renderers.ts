@@ -4,10 +4,8 @@ import {URL} from 'url';
 import * as Table from './DbTablesV1';
 import {Db, FullRow, Selected, SelectedAll} from "./pathsInterfaces";
 
-export type PartBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'>;
-
-export function rerenderComment(db: Db, idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint),
-                                bookmark: PartBookmark): string {
+export function rerenderComment(db: Db,
+                                idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint)): string {
   let id: number|bigint;
   let comment: Table.commentRow;
   if (typeof idOrComment === 'object') {
@@ -16,7 +14,6 @@ export function rerenderComment(db: Db, idOrComment: NonNullable<Selected<Table.
   } else {
     id = idOrComment;
     comment = db.prepare(`select * from comment where id=$id`).get({id: idOrComment});
-    // FIXME don't need * here   ↑!
   }
 
   let anchor = `comment-${id}`;
@@ -32,9 +29,6 @@ export function rerenderComment(db: Db, idOrComment: NonNullable<Selected<Table.
 ${encode(comment.content)}</pre>
 ${anchorLink}${editLink} ${timestamp}
 </div>`;
-  const [pre, post] = renderBookmarkHeader(
-      bookmark,
-  );
   db.prepare(`update comment set render=$render, renderedTime=$renderedTime where id=$id`)
       .run({id, render, renderedTime: Date.now()});
   return render;
@@ -44,6 +38,7 @@ function encodeTitle(title: string): string {
   return encode(title.replace(/[\n\r]+/g, '↲')); // alternatives include pilcrow, ¶
 }
 
+type PartBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'>;
 export function renderBookmarkHeader(partBookmark: PartBookmark, idSuffix: string = ''): [string, string] {
   const {id, url, title} = partBookmark;
   const anchor = `bookmark-${id}${idSuffix}`;
