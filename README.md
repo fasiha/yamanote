@@ -43,8 +43,8 @@ And here’s a prose description of the above: Yamanote is
 - It’s a web application so you need to run it on a computer, or get a friend to run it for you. (Technical notes: Node.js, SQLite.)
 - When you decide you want to bookmark a page on the web, you click on a Yamanote bookmarklet in your browser’s bookmarks bar (works great on desktop, and in Safari on iOS) to tell the Yamanote server about it.
 - Any text you’ve selected will be added as a “comment” to the bookmark by Yamanote. This is fun because as you read, you can select interesting snippets and keep clicking the bookmarklet to build a personalized list of excerpts.
-- You can add additional commentary to the bookmark in Yamanote.
-- Also, the first time you bookmark a URL, your browser will snapshot the entire webpage and send it to the Yamanote server as an arhchive (in technical terms, it’ll serialize the DOM). This is great for (1) paywalled content you had to log in to read, (2) Twitter, which makes it hard for things like Pinboard to archive, etc.
+- You can add additional commentary to the bookmark in Yamanote, either by editing one of the excerpts made from the bookmarklet or an entirely new comment with its own timestamp.
+- Also, the first time you bookmark a URL, your browser will snapshot the entire webpage and send it to the Yamanote server as an archive (in technical terms, it’ll serialize the DOM). This is great for (1) paywalled content you had to log in to read, (2) Twitter, which makes it hard for things like Pinboard to archive, etc.
 - The *server* will download any images—and optionally videos—in your bookmarked sites.
 - You can browse Yamanote’s snapshot of the URL (it might look weird because we block custom JavaScript in the mirror and lots of sites these days look weird with just HTML and CSS—shocking I know).
 - You can “sign into” Yamanote using your GitHub login (I do not want your nasty passwords). You can configure the server to only allow a certain approved list of GitHub users to log in.
