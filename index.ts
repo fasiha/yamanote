@@ -11,7 +11,7 @@ import assert from 'node:assert';
 import http from 'node:http';
 import srcsetlib from 'srcset';
 
-import * as Table from './DbTablesV3';
+import * as Table from './DbTablesV4';
 import {ensureAuthenticated, passportSetup, reqToUser} from './federated-auth';
 import {makeBackupTriggers} from './makeBackupTriggers.js';
 import {
@@ -37,12 +37,12 @@ import {
   rerenderComment,
   rerenderJustBookmark
 } from './renderers.js';
-import {groupBy2} from './utils';
+import {add1, groupBy2} from './utils';
 
 let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
 let ALL_COMMENTS: Map<number|bigint, string> = new Map();
 
-const SCHEMA_VERSION_REQUIRED = 3;
+const SCHEMA_VERSION_REQUIRED = 4;
 const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3456;
 /**
  * Save a new backup after a ~month
@@ -101,8 +101,8 @@ function cacheAllBookmarks(db: Db, userId: bigint|number) {
 }
 function cacheAllComments(db: Db, userId: bigint|number) {
   const commentsTimeSorted:
-      SelectedAll<Pick<Table.commentRow, 'render'|'bookmarkId'|'id'>&Pick<Table.bookmarkRow, 'url'|'title'>> =
-          db.prepare(`select comment.render, comment.id, bookmark.url, bookmark.title, bookmark.id as bookmarkId
+      SelectedAll<Pick<Table.commentRow, 'innerRender'|'bookmarkId'|'id'>&Pick<Table.bookmarkRow, 'url'|'title'>> =
+          db.prepare(`select comment.innerRender, comment.id, bookmark.url, bookmark.title, bookmark.id as bookmarkId
       from comment
       join bookmark on bookmark.id=comment.bookmarkId
       where bookmark.userId=1
@@ -139,8 +139,8 @@ function cacheAllComments(db: Db, userId: bigint|number) {
             const coda = ['', prev, next, thisVsTotal].join(' ') + '\n';
 
             const needle = '</div>';
-            if (!x.render.endsWith(needle)) { throw new Error('3') }
-            const commentRender = x.render.slice(0, -(needle.length)) + coda + needle;
+            if (!x.innerRender.endsWith(needle)) { throw new Error('3') }
+            const commentRender = x.innerRender.slice(0, -(needle.length)) + coda + needle;
 
             const suffix = total > 1 ? `-${thisNum}-of-${total}` : '';
             let bookmarkHeader = ['', ''];
@@ -162,14 +162,29 @@ function cacheAllComments(db: Db, userId: bigint|number) {
   ALL_COMMENTS.set(userId, prelude + renders);
 }
 
-function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint): string {
+function ensureBookmarkCommentConsistency(db: Db) {
+  const bookmarks: SelectedAll<Pick<Table.bookmarkRow, 'id'|'numComments'>> =
+      db.prepare(`select id, numComments from bookmark`).all();
+  const commentStatement =
+      db.prepare<Pick<Table.commentRow, 'bookmarkId'>>(`select siblingIdx from comment where bookmarkId=$bookmarkId`);
+  for (const {id: bookmarkId, numComments} of bookmarks) {
+    const rows: SelectedAll<Pick<Table.commentRow, 'siblingIdx'>> = commentStatement.all({bookmarkId})
+    assert(rows.length === numComments);
+    // todo check they're all there?
+  }
+}
+
+function addCommentToBookmark(db: Db, comment: string, bookmarkId: number|bigint,
+                              existingComments: number|bigint): string {
   const now = Date.now();
   const commentRow: Table.commentRow = {
     bookmarkId: bookmarkId,
     content: comment,
     createdTime: now,
     modifiedTime: now,
-    render: '',       // will be overwritten later in this function, by `rerenderComment`
+    innerRender: '', // will be overwritten later in this function, by `rerenderComment`
+    fullRender: '',  // unused right now
+    siblingIdx: add1(existingComments),
     renderedTime: -1, // again, will be overwritten
   };
   const result = db.prepare(`insert into comment (bookmarkId, content, createdTime, modifiedTime, render, renderedTime) 
@@ -186,6 +201,7 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string, 
     title,
     createdTime: now,
     modifiedTime: now,
+    numComments: 1,
     render: '',        // will be overridden shortly, in `rerenderJustBookmark`
     renderedTime: now, // ditto
   };
@@ -195,7 +211,7 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string, 
           .run(bookmarkRow)
 
   const id = insertResult.lastInsertRowid;
-  const commentRender = addCommentToBookmark(db, comment, id);
+  const commentRender = addCommentToBookmark(db, comment, id, 0);
 
   rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
   return id;
@@ -203,7 +219,7 @@ function createNewBookmark(db: Db, url: string, title: string, comment: string, 
 
 function bodyToBookmark(db: Db, body: Record<string, any>,
                         userId: number|bigint): [number, string|Record<string, any>] {
-  type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'>>;
+  type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'|'numComments'>>;
 
   {
     const res = AddBookmarkOrCommentPayload.decode(body);
@@ -223,14 +239,14 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
 
         const bookmark: SmallBookmark =
             db.prepare(
-                  `select id, render, modifiedTime from bookmark where url=$url and title=$title and userId=$userId`)
+                  `select id, render, modifiedTime, numComments from bookmark where url=$url and title=$title and userId=$userId`)
                 .get({title, url, userId});
 
         if (bookmark) {
           // existing bookmark
           id = bookmark.id;
-          const commentRender = addCommentToBookmark(db, comment, id);
-          fastUpdateBookmarkWithNewComment(db, bookmark.render, id, commentRender);
+          const commentRender = addCommentToBookmark(db, comment, id, bookmark.numComments);
+          fastUpdateBookmarkWithNewComment(db, bookmark.render, id, commentRender, bookmark.numComments);
 
           if (askForHtml) {
             // we're going to ask for HTML so far: URL, no HTML given. But if we have recent HTML, we can set
@@ -269,9 +285,11 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
     if (res._tag === 'Right') {
       const {id, comment} = res.right;
       const bookmark: SmallBookmark =
-          db.prepare(`select id, render, modifiedTime from bookmark where id=$id and userId=$userId`).get({id, userId});
+          db.prepare(`select id, render, modifiedTime, numComments from bookmark where id=$id and userId=$userId`)
+              .get({id, userId});
       if (bookmark) {
-        fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, id));
+        fastUpdateBookmarkWithNewComment(
+            db, bookmark.render, id, addCommentToBookmark(db, comment, id, bookmark.numComments), bookmark.numComments);
         cacheAllBookmarks(db, userId);
         return [200, {}];
       }
@@ -742,6 +760,7 @@ if (require.main === module) {
   (async function main() {
     mkdirpSync(__dirname + '/.data');
     const db = dbInit(__dirname + `/.data/yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
+    ensureBookmarkCommentConsistency(db);
 
     const app = await startServer(db);
 

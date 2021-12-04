@@ -2,7 +2,7 @@ create table _yamanote_db_state (schemaVersion integer not null);
 insert into
   _yamanote_db_state (schemaVersion)
 values
-  (3);
+  (4);
 create table user (
   id INTEGER PRIMARY KEY,
   displayName text not null,

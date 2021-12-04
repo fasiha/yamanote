@@ -1,8 +1,9 @@
 import {encode} from 'html-entities';
 import {URL} from 'url';
 
-import * as Table from './DbTablesV1';
+import * as Table from './DbTablesV4';
 import {Db, FullRow, Selected, SelectedAll} from "./pathsInterfaces";
+import {add1} from './utils';
 
 export function rerenderComment(db: Db,
                                 idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint)): string {
@@ -80,10 +81,11 @@ export function rerenderJustBookmark(db: Db, idOrPartBookmark: (number|bigint)|P
 
   let commentsRender = '';
   if (!preexistingRenders) {
-    const rows: SelectedAll<Pick<Table.commentRow, 'render'>> =
-        db.prepare<{id: number | bigint}>(`select render from comment where bookmarkId=$id order by createdTime desc`)
+    const rows: SelectedAll<Pick<Table.commentRow, 'innerRender'>> =
+        db.prepare<{id: number | bigint}>(
+              `select innerRender from comment where bookmarkId=$id order by createdTime desc`)
             .all({id});
-    commentsRender = rows.map(o => o.render).join('\n');
+    commentsRender = rows.map(o => o.innerRender).join('\n');
   } else {
     commentsRender = preexistingRenders.map(o => o.render).join('\n');
   }
@@ -96,7 +98,7 @@ export function rerenderJustBookmark(db: Db, idOrPartBookmark: (number|bigint)|P
 }
 
 export function fastUpdateBookmarkWithNewComment(db: Db, bookmarkRender: string, bookmarkId: number|bigint,
-                                                 commentRender: string) {
+                                                 commentRender: string, numComments: number|bigint) {
   // Update bookmark if it exists
   const now = Date.now();
 
@@ -106,6 +108,7 @@ export function fastUpdateBookmarkWithNewComment(db: Db, bookmarkRender: string,
   // RERENDER: assume first line is the bookmark stuff, and after newline, we have comments
   const newRender = bookmarkRender.substring(0, newline + breakStr.length) + commentRender + '\n' +
                     bookmarkRender.slice(newline + breakStr.length);
-  db.prepare(`update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime where id=$id`)
-      .run({render: newRender, renderedTime: now, modifiedTime: now, id: bookmarkId})
+  db.prepare<Pick<Table.bookmarkRow, 'render'|'renderedTime'|'modifiedTime'|'numComments'|'id'>>(
+        `update bookmark set render=$render, renderedTime=$renderedTime, modifiedTime=$modifiedTime, numComments=$numComments where id=$id`)
+      .run({render: newRender, renderedTime: now, modifiedTime: now, id: bookmarkId, numComments: add1(numComments)})
 }

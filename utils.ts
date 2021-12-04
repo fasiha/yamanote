@@ -21,3 +21,8 @@ export function groupBy2<T, U, V>(arr: T[], f: (x: T) => U, g: (x: T, group?: V)
   }
   return ret;
 }
+
+export function add1(x: number|bigint): number|bigint {
+  if (typeof x === 'number') { return x + 1; }
+  return x + BigInt(1);
+}
