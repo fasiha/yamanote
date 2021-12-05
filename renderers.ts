@@ -9,7 +9,32 @@ import {add1} from './utils';
 export type CoreBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'|'numComments'>;
 export type CoreComment = Pick<FullRow<Table.commentRow>, 'createdTime'|'id'|'modifiedTime'|'content'|'siblingIdx'>;
 
-export function rerenderComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark): string {
+export function rerenderInnerComment(db: Db, comment: CoreComment): string {
+  const id = comment.id;
+
+  let anchor = `comment-${id}`;
+  let timestamp = (new Date(comment.createdTime)).toISOString();
+  if (comment.createdTime !== comment.modifiedTime) {
+    const mod = (new Date(comment.modifiedTime)).toISOString();
+    timestamp += ` → ${mod}`;
+  }
+  const anchorLink = ` <a title="Link to this comment" href="#${anchor}" class="emojilink">🔗</a>`;
+  const editLink = ` <a title="Edit comment" id="edit-comment-button-${
+      id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
+
+  const innerRender = `<div id="${anchor}" class="comment"><pre class="unrendered">
+      ${encode(comment.content)}</pre>
+      ${anchorLink}${editLink} ${timestamp}
+      </div>`;
+
+  db.prepare<Pick<Table.commentRow, 'innerRender'|'renderedTime'|'id'>>(
+        `update comment set innerRender=$innerRender, renderedTime=$renderedTime where id=$id`)
+      .run({id, innerRender, renderedTime: Date.now()});
+  return innerRender;
+}
+
+export function rerenderFullComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark,
+                                    rerenderInner = false) {
   let id: number|bigint;
   let comment: CoreComment;
   if (typeof idOrComment === 'object') {
@@ -23,15 +48,7 @@ export function rerenderComment(db: Db, idOrComment: CoreComment|(number | bigin
 
   assert(bookmark.id && 'title' in bookmark && 'url' in bookmark && bookmark.numComments, 'bookmark valid');
 
-  let anchor = `comment-${id}`;
-  let timestamp = (new Date(comment.createdTime)).toISOString();
-  if (comment.createdTime !== comment.modifiedTime) {
-    const mod = (new Date(comment.modifiedTime)).toISOString();
-    timestamp += ` → ${mod}`;
-  }
-  const anchorLink = ` <a title="Link to this comment" href="#${anchor}" class="emojilink">🔗</a>`;
-  const editLink = ` <a title="Edit comment" id="edit-comment-button-${
-      id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
+  if (rerenderInner) { rerenderInnerComment(db, comment); }
 
   const codas = ['<span class="coda"> '];
   if (comment.siblingIdx < bookmark.numComments) {
@@ -48,19 +65,15 @@ export function rerenderComment(db: Db, idOrComment: CoreComment|(number | bigin
   codas.push('</span>');
   const coda = codas.join(' ');
 
-  const innerRender = `<div id="${anchor}" class="comment"><pre class="unrendered">
-${encode(comment.content)}</pre>
-${anchorLink}${editLink} ${timestamp} ${coda}
-</div>`;
-
   const suffix = `-comment-${comment.siblingIdx}`;
-  const [pre, post] = renderBookmarkHeader(bookmark, suffix);
-  const fullRender = [pre, innerRender, post].join('');
+  const [pre, simplePost] = renderBookmarkHeader(bookmark, suffix);
+  const post = coda + simplePost;
 
-  db.prepare<Pick<Table.commentRow, 'innerRender'|'fullRender'|'renderedTime'|'id'>>(
-        `update comment set fullRender=$fullRender, innerRender=$innerRender, renderedTime=$renderedTime where id=$id`)
-      .run({id, innerRender, fullRender, renderedTime: Date.now()});
-  return innerRender;
+  // TODO FIXME race condition possible here if siblingIdx or numComments changes under our feet
+  // Check via common table expression in UPDATE https://sqlite.org/lang_update.html
+  db.prepare<Pick<Table.commentRow, 'renderedTime'|'id'>&{pre: string, post: string}>(
+        `update comment set fullRender=$pre || innerRender || $post, renderedTime=$renderedTime where id=$id`)
+      .run({id, pre, post, renderedTime: Date.now()});
 }
 
 function encodeTitle(title: string): string {
@@ -97,12 +110,18 @@ export function renderBookmarkHeader(partBookmark: CoreBookmark, idSuffix: strin
 // as in, don't recurse into comments to render those: assume those are fine.
 export function rerenderJustBookmark(db: Db, idOrPartBookmark: (number|bigint)|CoreBookmark,
                                      preexistingRenders?: {render: string}[]) {
-  const bookmark = typeof idOrPartBookmark === 'object'
-                       ? idOrPartBookmark
-                       : db.prepare<Pick<CoreBookmark, 'id'>>(`select url, title, id from bookmark where id=$id`).get({
-                           id: idOrPartBookmark
-                         }) as CoreBookmark;
-  const id = typeof idOrPartBookmark === 'object' ? idOrPartBookmark.id : idOrPartBookmark;
+  let id: number|bigint;
+  let bookmark: CoreBookmark;
+  if (typeof idOrPartBookmark === 'object') {
+    id = idOrPartBookmark.id;
+    bookmark = idOrPartBookmark;
+  } else {
+    id = idOrPartBookmark;
+    bookmark = db.prepare<Pick<CoreBookmark, 'id'>>(`select url, title, id from bookmark where id=$id`).get({
+      id: idOrPartBookmark
+    });
+  }
+
   if (!bookmark) { throw new Error('unknown bookmark ' + idOrPartBookmark); }
   const [pre, post] = renderBookmarkHeader(bookmark);
 

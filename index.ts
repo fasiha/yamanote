@@ -35,7 +35,8 @@ import {
   CoreBookmark,
   fastUpdateBookmarkWithNewComment,
   renderBookmarkHeader,
-  rerenderComment,
+  rerenderFullComment,
+  rerenderInnerComment,
   rerenderJustBookmark
 } from './renderers.js';
 import {add1, groupBy2} from './utils';
@@ -86,20 +87,6 @@ export function dbInit(fname: string) {
   return db;
 }
 
-function cacheAllBookmarks(db: Db, userId: bigint|number) {
-  const res: Pick<Table.bookmarkRow, 'render'>[] =
-      db.prepare(`select render from bookmark where userId=$userId order by modifiedTime desc`).all({userId});
-  const renders = res.map(o => o.render).join('\n');
-
-  const js = readFileSync('bookmarklet.js', 'utf8');
-  const BOOKMARKLET_NEEDLE = '$BOOKMARKLET_PAYLOAD';
-  const prelude =
-      readFileSync('prelude.html', 'utf8') + readFileSync('topstuff.html', 'utf8').replace(BOOKMARKLET_NEEDLE, js);
-  assert(!prelude.includes(BOOKMARKLET_NEEDLE), 'javascript has been inserted')
-
-  ALL_BOOKMARKS.set(userId, prelude + renders);
-  cacheAllComments(db, userId);
-}
 function cacheAllComments(db: Db, userId: bigint|number) {
   const js = readFileSync('bookmarklet.js', 'utf8');
   const BOOKMARKLET_NEEDLE = '$BOOKMARKLET_PAYLOAD';
@@ -155,7 +142,10 @@ function addCommentToBookmark(db: Db, comment: string, bookmark: CoreBookmark): 
             `insert into comment (bookmarkId, content, createdTime, modifiedTime, siblingIdx, innerRender, fullRender, renderedTime)
             values ($bookmarkId, $content, $createdTime, $modifiedTime, $siblingIdx, $innerRender, $fullRender, $renderedTime)`)
           .run(commentRow);
-  return rerenderComment(db, {...commentRow, id: result.lastInsertRowid}, bookmark);
+  const commentWithId = {...commentRow, id: result.lastInsertRowid};
+  const inner = rerenderInnerComment(db, commentWithId);
+  rerenderFullComment(db, commentWithId, bookmark);
+  return inner;
 }
 
 function createNewBookmark(db: Db, url: string, title: string, comment: string, userId: number|bigint): number|bigint {
@@ -231,7 +221,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
           // new bookmark
           id = createNewBookmark(db, url, title, comment, userId);
         }
-        cacheAllBookmarks(db, userId);
+        cacheAllComments(db, userId);
 
         if (html) {
           db.prepare(`insert into backup (bookmarkId, content, createdTime)
@@ -259,7 +249,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
       if (bookmark) {
         fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, bookmark),
                                          bookmark.numComments);
-        cacheAllBookmarks(db, userId);
+        cacheAllComments(db, userId);
         return [200, {}];
       }
       return [401, 'not authorized'];
@@ -481,7 +471,7 @@ export async function startServer(db: Db, {
   app.get('/', (req, res) => {
     if (req.user) {
       const user = reqToUser(req);
-      if (!ALL_BOOKMARKS.has(user.id)) { cacheAllBookmarks(db, user.id); }
+      if (!ALL_BOOKMARKS.has(user.id)) { cacheAllComments(db, user.id); }
       res.send(ALL_BOOKMARKS.get(user.id));
       return;
     }
@@ -549,7 +539,7 @@ export async function startServer(db: Db, {
       db.prepare<{bookmarkId: number}>(`delete from media where bookmarkId=$bookmarkId`).run(p);
       db.prepare<{bookmarkId: number}>(`delete from comment where bookmarkId=$bookmarkId`).run(p);
       db.prepare<{bookmarkId: number}>(`delete from bookmark where id=$bookmarkId`).run(p);
-      cacheAllBookmarks(db, user.id);
+      cacheAllComments(db, user.id);
       res.status(200).send();
       return;
     }
@@ -655,9 +645,9 @@ export async function startServer(db: Db, {
         db.prepare<{content: string, modifiedTime: number, id: number}>(
               `update comment set content=$content, modifiedTime=$modifiedTime where id=$id`)
             .run({content, modifiedTime: Date.now(), id: commentId});
-        rerenderComment(db, commentId, row);
+        rerenderFullComment(db, commentId, row);
         rerenderJustBookmark(db, row);
-        cacheAllBookmarks(db, user.id);
+        cacheAllComments(db, user.id);
         res.status(200).send();
         return;
       }
@@ -694,7 +684,7 @@ export async function startServer(db: Db, {
       // comments
 
       rerenderJustBookmark(db, toId);
-      cacheAllBookmarks(db, user.id);
+      cacheAllComments(db, user.id);
       res.status(200).send();
       return;
     }
@@ -743,14 +733,15 @@ if (require.main === module) {
         from bookmark
         join comment
         on comment.bookmarkId=bookmark.id`).all();
-      for (const x of all) { rerenderComment(db, x, {...x, id: x.bookmarkId}); }
-      cacheAllBookmarks(db, 1);
+      for (const x of all) { rerenderFullComment(db, x, {...x, id: x.bookmarkId}, true); }
+      cacheAllComments(db, 1);
       console.log('done rerendering comments', {len: all.length});
     }
-    if (0) {
-      const all: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark order by modifiedTime desc`).all()
+    if (1) {
+      const all: SelectedAll<CoreBookmark> =
+          db.prepare(`select id,url,title,numComments from bookmark order by modifiedTime desc`).all()
       for (const x of all) { rerenderJustBookmark(db, x); }
-      cacheAllBookmarks(db, 1);
+      cacheAllComments(db, 1);
       console.log('done rerendering bookmarks');
     }
     {
