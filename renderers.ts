@@ -1,3 +1,4 @@
+import assert from 'assert';
 import {encode} from 'html-entities';
 import {URL} from 'url';
 
@@ -5,17 +6,22 @@ import * as Table from './DbTablesV4';
 import {Db, FullRow, Selected, SelectedAll} from "./pathsInterfaces";
 import {add1} from './utils';
 
-export function rerenderComment(db: Db,
-                                idOrComment: NonNullable<Selected<Table.commentRow>>|(number | bigint)): string {
+export type CoreBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'|'numComments'>;
+export type CoreComment = Pick<FullRow<Table.commentRow>, 'createdTime'|'id'|'modifiedTime'|'content'|'siblingIdx'>;
+
+export function rerenderComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark): string {
   let id: number|bigint;
-  let comment: Table.commentRow;
+  let comment: CoreComment;
   if (typeof idOrComment === 'object') {
     id = idOrComment.id;
     comment = idOrComment;
   } else {
     id = idOrComment;
-    comment = db.prepare(`select * from comment where id=$id`).get({id: idOrComment});
+    comment =
+        db.prepare(`select createdTime, id, modifiedTime, content, siblingIdx from comment where id=$id`).get({id});
   }
+
+  assert(bookmark.id && 'title' in bookmark && 'url' in bookmark && bookmark.numComments, 'bookmark valid');
 
   let anchor = `comment-${id}`;
   let timestamp = (new Date(comment.createdTime)).toISOString();
@@ -26,13 +32,34 @@ export function rerenderComment(db: Db,
   const anchorLink = ` <a title="Link to this comment" href="#${anchor}" class="emojilink">🔗</a>`;
   const editLink = ` <a title="Edit comment" id="edit-comment-button-${
       id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
+
+  const codas = ['<span class="coda"> '];
+  if (comment.siblingIdx < bookmark.numComments) {
+    codas.push(
+        `<a class="emojilink coda-prev" href="#bookmark-${bookmark.id}-comment-${add1(comment.siblingIdx)}">👈</a>`);
+  }
+  if (comment.siblingIdx > 1) {
+    codas.push(
+        `<a class="emojilink coda-next" href="#bookmark-${bookmark.id}-comment-${add1(comment.siblingIdx, -1)}">👉</a>`);
+  }
+  if (bookmark.numComments > 1) {
+    codas.push(`<span class="coda-this">${comment.siblingIdx}/${bookmark.numComments}</span>`);
+  }
+  codas.push('</span>');
+  const coda = codas.join(' ');
+
   const innerRender = `<div id="${anchor}" class="comment"><pre class="unrendered">
 ${encode(comment.content)}</pre>
-${anchorLink}${editLink} ${timestamp}
+${anchorLink}${editLink} ${timestamp} ${coda}
 </div>`;
-  db.prepare<Pick<Table.commentRow, 'innerRender'|'renderedTime'|'id'>>(
-        `update comment set innerRender=$innerRender, renderedTime=$renderedTime where id=$id`)
-      .run({id, innerRender, renderedTime: Date.now()});
+
+  const suffix = `-comment-${comment.siblingIdx}`;
+  const [pre, post] = renderBookmarkHeader(bookmark, suffix);
+  const fullRender = [pre, innerRender, post].join('');
+
+  db.prepare<Pick<Table.commentRow, 'innerRender'|'fullRender'|'renderedTime'|'id'>>(
+        `update comment set fullRender=$fullRender, innerRender=$innerRender, renderedTime=$renderedTime where id=$id`)
+      .run({id, innerRender, fullRender, renderedTime: Date.now()});
   return innerRender;
 }
 
@@ -40,8 +67,7 @@ function encodeTitle(title: string): string {
   return encode(title.replace(/[\n\r]+/g, '↲')); // alternatives include pilcrow, ¶
 }
 
-type PartBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'>;
-export function renderBookmarkHeader(partBookmark: PartBookmark, idSuffix: string = ''): [string, string] {
+export function renderBookmarkHeader(partBookmark: CoreBookmark, idSuffix: string = ''): [string, string] {
   const {id, url, title} = partBookmark;
   const anchor = `bookmark-${id}${idSuffix}`;
 
@@ -69,13 +95,13 @@ export function renderBookmarkHeader(partBookmark: PartBookmark, idSuffix: strin
 }
 
 // as in, don't recurse into comments to render those: assume those are fine.
-export function rerenderJustBookmark(db: Db, idOrPartBookmark: (number|bigint)|PartBookmark,
+export function rerenderJustBookmark(db: Db, idOrPartBookmark: (number|bigint)|CoreBookmark,
                                      preexistingRenders?: {render: string}[]) {
   const bookmark = typeof idOrPartBookmark === 'object'
                        ? idOrPartBookmark
-                       : db.prepare<Pick<PartBookmark, 'id'>>(`select url, title, id from bookmark where id=$id`).get({
+                       : db.prepare<Pick<CoreBookmark, 'id'>>(`select url, title, id from bookmark where id=$id`).get({
                            id: idOrPartBookmark
-                         }) as PartBookmark;
+                         }) as CoreBookmark;
   const id = typeof idOrPartBookmark === 'object' ? idOrPartBookmark.id : idOrPartBookmark;
   if (!bookmark) { throw new Error('unknown bookmark ' + idOrPartBookmark); }
   const [pre, post] = renderBookmarkHeader(bookmark);

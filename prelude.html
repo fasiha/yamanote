@@ -6,6 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Yamanote app 山の手</title>
   <style>
+    div.bookmark[data-prevsame="true"] :is(.bookmark-header, .coda-prev),
+    div.bookmark[data-prevsame="true"][data-nextsame="true"] .coda,
+    div.bookmark[data-nextsame="true"] .coda-next {
+      display: none;
+    }
+
     div.bookmark {
       padding-top: 0.4em;
       border-bottom: #ddd dotted;
