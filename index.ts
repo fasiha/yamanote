@@ -35,9 +35,9 @@ import {
   CoreBookmark,
   fastUpdateBookmarkWithNewComment,
   renderBookmarkHeader,
-  rerenderFullComment,
-  rerenderInnerComment,
-  rerenderJustBookmark
+  rerenderCoreComment,
+  rerenderJustBookmark,
+  rerenderPartialComment
 } from './renderers.js';
 import {add1, groupBy2} from './utils';
 
@@ -143,8 +143,27 @@ function addCommentToBookmark(db: Db, comment: string, bookmark: CoreBookmark): 
             values ($bookmarkId, $content, $createdTime, $modifiedTime, $siblingIdx, $innerRender, $fullRender, $renderedTime)`)
           .run(commentRow);
   const commentWithId = {...commentRow, id: result.lastInsertRowid};
-  const inner = rerenderInnerComment(db, commentWithId);
-  rerenderFullComment(db, commentWithId, bookmark);
+  const inner = rerenderCoreComment(db, commentWithId);
+
+  if (false) {
+    const siblings: SelectedAll<Pick<FullRow<Table.commentRow>, 'id'|'siblingIdx'>> =
+        db.prepare<Pick<Table.commentRow, 'bookmarkId'>>(`
+      select id, siblingIdx
+      from comment
+      where bookmarkId=$bookmarkId
+      order by createdTime asc`)
+            .all({bookmarkId: bookmark.id});
+    const diff = siblings.filter((sib, i) => sib.siblingIdx !== i + 1);
+  }
+  db.prepare<{bookmarkId: number | bigint}>(`
+  with cte as (select id, innerRender, row_number() over(order by createdTime) as rn 
+               from comment where bookmarkId=$bookmarkId)
+  update comment
+  set siblingIdx=(select rn from cte where cte.id=comment.id),
+      fullRender=(select innerRender from cte where cte.id=comment.id)
+  `).run({bookmarkId: bookmark.id})
+
+  rerenderPartialComment(db, commentWithId, bookmark);
   return inner;
 }
 
@@ -645,7 +664,7 @@ export async function startServer(db: Db, {
         db.prepare<{content: string, modifiedTime: number, id: number}>(
               `update comment set content=$content, modifiedTime=$modifiedTime where id=$id`)
             .run({content, modifiedTime: Date.now(), id: commentId});
-        rerenderFullComment(db, commentId, row);
+        rerenderPartialComment(db, commentId, row);
         rerenderJustBookmark(db, row);
         cacheAllComments(db, user.id);
         res.status(200).send();
@@ -733,7 +752,7 @@ if (require.main === module) {
         from bookmark
         join comment
         on comment.bookmarkId=bookmark.id`).all();
-      for (const x of all) { rerenderFullComment(db, x, {...x, id: x.bookmarkId}, true); }
+      for (const x of all) { rerenderPartialComment(db, x, {...x, id: x.bookmarkId}, true); }
       cacheAllComments(db, 1);
       console.log('done rerendering comments', {len: all.length});
     }

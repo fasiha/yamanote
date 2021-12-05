@@ -9,7 +9,7 @@ import {add1} from './utils';
 export type CoreBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'|'numComments'>;
 export type CoreComment = Pick<FullRow<Table.commentRow>, 'createdTime'|'id'|'modifiedTime'|'content'|'siblingIdx'>;
 
-export function rerenderInnerComment(db: Db, comment: CoreComment): string {
+export function rerenderCoreComment(db: Db, comment: CoreComment): string {
   const id = comment.id;
 
   let anchor = `comment-${id}`;
@@ -27,14 +27,13 @@ export function rerenderInnerComment(db: Db, comment: CoreComment): string {
       ${anchorLink}${editLink} ${timestamp}
       </div>`;
 
-  db.prepare<Pick<Table.commentRow, 'innerRender'|'renderedTime'|'id'>>(
-        `update comment set innerRender=$innerRender, renderedTime=$renderedTime where id=$id`)
-      .run({id, innerRender, renderedTime: Date.now()});
+  // db.prepare<Pick<Table.commentRow, 'innerRender'|'renderedTime'|'id'>>(
+  //       `update comment set innerRender=$innerRender, renderedTime=$renderedTime where id=$id`)
+  //     .run({id, innerRender, renderedTime: Date.now()});
   return innerRender;
 }
 
-export function rerenderFullComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark,
-                                    rerenderInner = false) {
+export function rerenderPartialComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark) {
   let id: number|bigint;
   let comment: CoreComment;
   if (typeof idOrComment === 'object') {
@@ -48,7 +47,7 @@ export function rerenderFullComment(db: Db, idOrComment: CoreComment|(number | b
 
   assert(bookmark.id && 'title' in bookmark && 'url' in bookmark && bookmark.numComments, 'bookmark valid');
 
-  if (rerenderInner) { rerenderInnerComment(db, comment); }
+  const coreRender = rerenderCoreComment(db, comment);
 
   const codas = ['<span class="coda"> '];
   if (comment.siblingIdx < bookmark.numComments) {
@@ -66,14 +65,19 @@ export function rerenderFullComment(db: Db, idOrComment: CoreComment|(number | b
   const coda = codas.join(' ');
 
   const suffix = `-comment-${comment.siblingIdx}`;
-  const [pre, simplePost] = renderBookmarkHeader(bookmark, suffix);
-  const post = coda + simplePost;
+  const [pre, post] = renderBookmarkHeader(bookmark, suffix);
+  const partial = [pre, coreRender, coda, post].join('');
 
   // TODO FIXME race condition possible here if siblingIdx or numComments changes under our feet
   // Check via common table expression in UPDATE https://sqlite.org/lang_update.html
-  db.prepare<Pick<Table.commentRow, 'renderedTime'|'id'>&{pre: string, post: string}>(
-        `update comment set fullRender=$pre || innerRender || $post, renderedTime=$renderedTime where id=$id`)
-      .run({id, pre, post, renderedTime: Date.now()});
+  db.prepare<{bookmarkId: number | bigint, id: number | bigint, partial: string, renderedTime: number}>(`
+        with cte as (select numComments from bookmark where bookmark.id=$bookmarkId)
+        update comment set 
+        innerRender=$partial,
+        fullRender=replace(replace($partial, "%TOTAL", cte.numComments), "%SIBLING", comment.siblingIdx),
+        renderedTime=$renderedTime
+        where id=$id`)
+      .run({id, partial, bookmarkId: bookmark.id, renderedTime: Date.now()});
 }
 
 function encodeTitle(title: string): string {
