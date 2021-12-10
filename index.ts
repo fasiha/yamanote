@@ -1,8 +1,9 @@
 import sqlite3 from 'better-sqlite3';
 import bodyParser from 'body-parser';
-import {createHash} from 'crypto';
+import {createHash, randomBytes} from 'crypto';
 import * as express from 'express';
 import {readFileSync} from 'fs';
+import {encode} from 'html-entities';
 import {JSDOM} from 'jsdom';
 import {sync as mkdirpSync} from 'mkdirp';
 import multer from 'multer';
@@ -11,7 +12,7 @@ import assert from 'node:assert';
 import http from 'node:http';
 import srcsetlib from 'srcset';
 
-import * as Table from './DbTablesV4';
+import * as Table from './DbTablesV5';
 import {ensureAuthenticated, passportSetup, reqToUser} from './federated-auth';
 import {makeBackupTriggers} from './makeBackupTriggers.js';
 import {
@@ -32,19 +33,19 @@ import {
   uniqueConstraintError
 } from './pathsInterfaces.js';
 import {
-  CoreBookmark,
-  fastUpdateBookmarkWithNewComment,
-  renderBookmarkHeader,
-  rerenderCoreComment,
-  rerenderJustBookmark,
-  rerenderPartialComment
+  // CoreBookmark,
+  // fastUpdateBookmarkWithNewComment,
+  // renderBookmarkHeader,
+  // rerenderFullComment,
+  // rerenderInnerComment,
+  // rerenderJustBookmark
 } from './renderers.js';
 import {add1, groupBy2} from './utils';
 
 let ALL_BOOKMARKS: Map<number|bigint, string> = new Map();
 let ALL_COMMENTS: Map<number|bigint, string> = new Map();
 
-const SCHEMA_VERSION_REQUIRED = 4;
+const SCHEMA_VERSION_REQUIRED = 5;
 const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3456;
 /**
  * Save a new backup after a ~month
@@ -94,108 +95,148 @@ function cacheAllComments(db: Db, userId: bigint|number) {
       readFileSync('prelude.html', 'utf8') + readFileSync('topstuff.html', 'utf8').replace(BOOKMARKLET_NEEDLE, js);
   assert(!prelude.includes(BOOKMARKLET_NEEDLE), 'javascript has been inserted')
 
-  const rows:
-      SelectedAll<Pick<Table.commentRow, 'fullRender'|'bookmarkId'|'id'>> = db.prepare<{userId: number | bigint}>(`
-    select comment.id, bookmarkId, fullRender from comment
+  const rows: SelectedAll<Pick<Table.commentRow, 'fullRender'>> = db.prepare<{userId: number | bigint}>(`
+    select comment.fullRender from comment
     join bookmark
     on bookmark.id=comment.bookmarkId
     where bookmark.userId=$userId
     order by comment.createdTime desc`).all({userId: userId});
-  const renders = rows.map((o, i) => {
-                        let r = o.fullRender;
-                        const prevSame = rows[i - 1]?.bookmarkId === o.bookmarkId;
-                        const nextSame = rows[i + 1]?.bookmarkId === o.bookmarkId;
-                        const idx = r.indexOf(' ');
-                        const data = ` data-prevSame="${prevSame}" data-nextSame="${nextSame}"`;
-                        return r.slice(0, idx) + data + r.slice(idx);
-                      })
-                      .join('\n');
+  const renders = rows.map(o => o.fullRender).join('\n');
   ALL_COMMENTS.set(userId, prelude + renders);
 }
 
-function ensureBookmarkCommentConsistency(db: Db) {
-  const bookmarks: SelectedAll<Pick<Table.bookmarkRow, 'id'|'numComments'>> =
-      db.prepare(`select id, numComments from bookmark`).all();
-  const commentStatement =
-      db.prepare<Pick<Table.commentRow, 'bookmarkId'>>(`select siblingIdx from comment where bookmarkId=$bookmarkId`);
-  for (const {id: bookmarkId, numComments} of bookmarks) {
-    const rows: SelectedAll<Pick<Table.commentRow, 'siblingIdx'>> = commentStatement.all({bookmarkId})
-    assert(rows.length === numComments);
-    // todo check they're all there?
+function renderCommentContentOnly(comment: FullRow<Table.commentRow>): string {
+  const id = comment.id;
+  assert(id, 'valid comment id');
+
+  let anchor = `comment-${id}`;
+  let timestamp = (new Date(comment.createdTime)).toISOString();
+  if (comment.createdTime !== comment.modifiedTime) {
+    const mod = (new Date(comment.modifiedTime)).toISOString();
+    timestamp += ` → ${mod}`;
   }
+  const anchorLink = ` <a title="Link to this comment" href="#${anchor}" class="emojilink">🔗</a>`;
+  const editLink = ` <a title="Edit comment" id="edit-comment-button-${
+      id}" href="#" class="emojilink edit-comment-button comment-button">💌</a>`;
+
+  return `<div id="${anchor}" class="comment"><pre class="unrendered">
+${encode(comment.content)}</pre>
+${anchorLink}${editLink} ${timestamp}
+</div>`;
 }
 
-function addCommentToBookmark(db: Db, comment: string, bookmark: CoreBookmark): string {
+function insertComment(db: Db, comment: string, bookmark: SmallBookmark) {
   const now = Date.now();
   const commentRow: Table.commentRow = {
     bookmarkId: bookmark.id,
     content: comment,
     createdTime: now,
     modifiedTime: now,
-    innerRender: '', // will be overwritten later in this function, by `rerenderComment`
-    fullRender: '',  // unused right now
-    siblingIdx: add1(bookmark.numComments),
-    renderedTime: -1, // again, will be overwritten
+    contentOnlyRender: '',
+    fullRender: '', // unused right now
   };
-  const result =
-      db.prepare<Table.commentRow>(
-            `insert into comment (bookmarkId, content, createdTime, modifiedTime, siblingIdx, innerRender, fullRender, renderedTime)
-            values ($bookmarkId, $content, $createdTime, $modifiedTime, $siblingIdx, $innerRender, $fullRender, $renderedTime)`)
-          .run(commentRow);
+  const insert = db.prepare<Table.commentRow>(`insert into comment
+  (bookmarkId, content, createdTime, modifiedTime, contentOnlyRender, fullRender)
+  values
+  ($bookmarkId, $content, $createdTime, $modifiedTime, $contentOnlyRender, $fullRender)`);
+
+  const update = db.prepare<Pick<FullRow<Table.commentRow>, 'id'|'contentOnlyRender'>>(`update comment
+  set contentOnlyRender=$contentOnlyRender
+  where id=$id`);
+
+  // 1. IN TRANSACTION
+  const result = insert.run(commentRow);
   const commentWithId = {...commentRow, id: result.lastInsertRowid};
-  const inner = rerenderCoreComment(db, commentWithId);
+  commentWithId.contentOnlyRender = renderCommentContentOnly(commentWithId)
+  update.run(commentWithId);
+  // END  TRANSACTION
 
-  if (false) {
-    const siblings: SelectedAll<Pick<FullRow<Table.commentRow>, 'id'|'siblingIdx'>> =
-        db.prepare<Pick<Table.commentRow, 'bookmarkId'>>(`
-      select id, siblingIdx
-      from comment
-      where bookmarkId=$bookmarkId
-      order by createdTime asc`)
-            .all({bookmarkId: bookmark.id});
-    const diff = siblings.filter((sib, i) => sib.siblingIdx !== i + 1);
+  // 2. just need to fully render all comments in this bookmark
+  renderAllCommentsForBookmark(db, bookmark);
+}
+type CommentsGraph = SelectedAll<Pick<Table.commentRow, 'contentOnlyRender'|'id'>&{
+  idx: number,
+  olderCommentSameBookmark: boolean,
+  newerCommentSameBookmark: boolean,
+  olderId: number | bigint,
+  newerId: number | bigint
+}>;
+
+function headerMaker({url, title, id}: SmallBookmark) {
+  const COMMENT_PLACEHOLDER = `[comment id ${Array.from(Array(2), _ => Math.random().toString(36).slice(2)).join('')}]`;
+  let header = '';
+  if (url && title) {
+    let urlsnippet = '';
+    try {
+      const urlobj = new URL(url);
+      urlsnippet = ` <small class="url-snippet">${urlobj.hostname}</small>`;
+    } catch {}
+    header = `<a href="${url}">${title}</a>${urlsnippet}`;
+  } else if (url) {
+    header = `<a href="${url}">${url}</a>`;
+  } else if (title) {
+    header = title;
   }
-  db.prepare<{bookmarkId: number | bigint}>(`
-  with cte as (select id, innerRender, row_number() over(order by createdTime) as rn 
-               from comment where bookmarkId=$bookmarkId)
-  update comment
-  set siblingIdx=(select rn from cte where cte.id=comment.id),
-      fullRender=(select innerRender from cte where cte.id=comment.id)
-  `).run({bookmarkId: bookmark.id})
+  header += ` <a title="Link to this bookmark" href="#bookmark-${id}${COMMENT_PLACEHOLDER}" class="emojilink">🔗</a>`;
+  header +=
+      ` <a title="Add a comment" id="add-comment-button-PLACEHOLDER_ID" href="#" class="emojilink add-comment-button comment-button">💌</a>`;
+  header += ` <a title="See raw snapshot" href="/backup/${id}" class="emojilink">💁</a>`;
+  header += ` <a title="See just this bookmark (and delete it)" href="/bookmark/${id}" class="emojilink">💥</a>`;
+  const span = `<span class="bookmark-header">${header}</span>`;
+  return (commentId: string|number|bigint) => span.replace(COMMENT_PLACEHOLDER, '' + commentId);
+}
 
-  rerenderPartialComment(db, commentWithId, bookmark);
-  return inner;
+function renderAllCommentsForBookmark(db: Db, bookmark: SmallBookmark) {
+  const makeHeader = headerMaker(bookmark);
+  const insert = db.prepare<Pick<FullRow<Table.commentRow>, 'id'|'fullRender'>>(
+      `update comment set fullRender=$fullRender where id=$id`);
+
+  // TODO FIXME this ALL should be in a transaction
+  const comments: CommentsGraph = db.prepare<{bookmarkId: number | bigint}>(`
+      select contentOnlyRender, comment.id, idx, olderCommentSameBookmark, newerCommentSameBookmark, olderId, newerId
+      from comment 
+      join comment_graph 
+      on comment_graph.id=comment.id
+      where comment.bookmarkId=$bookmarkId`)
+                                      .all({bookmarkId: bookmark.id});
+  for (const comment of comments) {
+    const commentId = `-comment-${comment.id}`;
+    const fullRender = `
+<div id="bookmark-${bookmark.id}${commentId}" class="bookmark"
+    data-bookmarkid="${bookmark.id}" 
+    data-numcomments="${comments.length}"
+    data-oldersamebookmark="${comment.olderCommentSameBookmark ? 'true' : 'false'}"
+    data-newersamebookmark="${comment.newerCommentSameBookmark ? 'true' : 'false'}">
+  ${makeHeader(commentId)}
+  ${comment.contentOnlyRender}
+  <div class="coda">
+    <a class="emojilink coda-prev" href="#bookmark-${bookmark.id}-comment-${comment.newerId}">👈</a>
+    <a class="emojilink coda-prev" href="#bookmark-${bookmark.id}-comment-${comment.olderId}">👉</a>
+    (${comment.idx}/${comments.length})
+  </div>
+</div>`;
+    insert.run({id: comment.id, fullRender})
+  }
 }
 
 function createNewBookmark(db: Db, url: string, title: string, comment: string, userId: number|bigint): number|bigint {
   const now = Date.now();
-  const bookmarkRow: Table.bookmarkRow = {
-    userId,
-    url,
-    title,
-    createdTime: now,
-    modifiedTime: now,
-    numComments: 1,
-    render: '',        // will be overridden shortly, in `rerenderJustBookmark`
-    renderedTime: now, // ditto
-  };
+  const bookmarkRow: Table.bookmarkRow = {userId, url, title, createdTime: now, modifiedTime: now, render: ''};
   const insertResult =
-      db.prepare<Table.bookmarkRow>(
-            `insert into bookmark (userId, url, title, createdTime, modifiedTime, numComments, render, renderedTime)
-            values ($userId, $url, $title, $createdTime, $modifiedTime, $numComments, $render, $renderedTime)`)
+      db.prepare<Table.bookmarkRow>(`insert into bookmark (userId, url, title, createdTime, modifiedTime, render)
+            values ($userId, $url, $title, $createdTime, $modifiedTime, $render)`)
           .run(bookmarkRow)
 
   const id = insertResult.lastInsertRowid;
-  const commentRender = addCommentToBookmark(db, comment, {id, url, title, numComments: 0});
+  insertComment(db, comment, {...bookmarkRow, id});
 
-  rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
+  // rerenderJustBookmark(db, {...bookmarkRow, id: id}, [{render: commentRender}]);
   return id;
 }
 
-function bodyToBookmark(db: Db, body: Record<string, any>,
-                        userId: number|bigint): [number, string|Record<string, any>] {
-  type SmallBookmark = Selected<Pick<Table.bookmarkRow, 'id'|'render'|'modifiedTime'|'numComments'|'url'|'title'>>;
-  const SMALL_BOOKMARK_COLS = `id, render, modifiedTime, numComments, url, title`;
+type SmallBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'modifiedTime'|'url'|'title'>;
+const SMALL_BOOKMARK_COLS = `id, modifiedTime, url, title`;
+function bodyToBookmark(db: Db, body: Record<string, any>, userId: number|bigint): [number, string|Record<string, any>]{
   // It'd be nice if TypeScript helped ensure all keys are in this string/array above…
 
   {
@@ -214,7 +255,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
 
         if (quote && comment) { comment = '> ' + comment.replace(/\n/g, '\n> '); }
 
-        const bookmark: SmallBookmark =
+        const bookmark: Selected<SmallBookmark> =
             db.prepare<Pick<Table.bookmarkRow, 'url'|'title'|'userId'>>(
                   `select ${SMALL_BOOKMARK_COLS} from bookmark where url=$url and title=$title and userId=$userId`)
                 .get({title, url, userId});
@@ -222,8 +263,8 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
         if (bookmark) {
           // existing bookmark
           id = bookmark.id;
-          const commentRender = addCommentToBookmark(db, comment, {id, url, title, numComments: bookmark.numComments});
-          fastUpdateBookmarkWithNewComment(db, bookmark.render, id, commentRender, bookmark.numComments);
+          insertComment(db, comment, bookmark);
+          // fastUpdateBookmarkWithNewComment(db, bookmark.render, id, commentRender, bookmark.numComments);
 
           if (askForHtml) {
             // we're going to ask for HTML so far: URL, no HTML given. But if we have recent HTML, we can set
@@ -256,25 +297,21 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
       }
       return [400, 'need a `url` or `title` (or both)'];
     }
-  }
-  {
-    const res = AddCommentOnlyPayload.decode(body);
-    if (res._tag === 'Right') {
+  } {
+    const res = AddCommentOnlyPayload.decode(body); if (res._tag === 'Right') {
       const {id, comment} = res.right;
-      const bookmark: SmallBookmark =
+      const bookmark: Selected<SmallBookmark> =
           db.prepare<Pick<FullRow<Table.bookmarkRow>, 'id'|'userId'>>(
                 `select ${SMALL_BOOKMARK_COLS} from bookmark where id=$id and userId=$userId`)
               .get({id, userId});
       if (bookmark) {
-        fastUpdateBookmarkWithNewComment(db, bookmark.render, id, addCommentToBookmark(db, comment, bookmark),
-                                         bookmark.numComments);
+        insertComment(db, comment, bookmark);
         cacheAllComments(db, userId);
         return [200, {}];
       }
       return [401, 'not authorized'];
     }
-  }
-  {
+  } {
     const res = AddHtmlPayload.decode(body);
     if (res._tag === 'Right') {
       const {id, html} = res.right;
@@ -290,7 +327,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
   }
 
   return [400, 'no message type matched io-ts specification']
-}
+};
 
 function fixUrl(url: string, parentUrl: string): string|undefined {
   // NO source? Data URL? Skip.
@@ -447,6 +484,7 @@ export function updateDomUrls(dom: JSDOM, parentUrl: string, bookmarkId: number|
 }
 
 async function downloadImagesVideos(db: Db, bookmarkId: number|bigint) {
+  if (1) { return; }
   const row: Pick<Table.backupRow, 'original'> =
       db.prepare<{bookmarkId: number | bigint}>('select original from backup where bookmarkId=$bookmarkId')
           .get({bookmarkId});
@@ -653,19 +691,16 @@ export async function startServer(db: Db, {
     const {content} = req.body;
     if (isFinite(commentId) && typeof content === 'string') {
       const user = reqToUser(req);
-      const row: Selected<CoreBookmark> = db.prepare<{commentId: number | bigint, userId: number | bigint}>(`
-        select bookmark.id, bookmark.title, bookmark.url, bookmark.numComments
+      const row: Selected<SmallBookmark> = db.prepare<{commentId: number | bigint, userId: number | bigint}>(`
+        select ${SMALL_BOOKMARK_COLS.split(',').map(s => 'bookmark.' + s.trim()).join(', ')}
         from bookmark
         join comment
         on comment.bookmarkId=bookmark.id
         where comment.id=$commentId and bookmark.userId=$userId`)
-                                              .get({commentId, userId: user.id});
+                                               .get({commentId, userId: user.id});
       if (row) {
-        db.prepare<{content: string, modifiedTime: number, id: number}>(
-              `update comment set content=$content, modifiedTime=$modifiedTime where id=$id`)
-            .run({content, modifiedTime: Date.now(), id: commentId});
-        rerenderPartialComment(db, commentId, row);
-        rerenderJustBookmark(db, row);
+        insertComment(db, content, row);
+        // rerenderJustBookmark(db, row);
         cacheAllComments(db, user.id);
         res.status(200).send();
         return;
@@ -702,7 +737,7 @@ export async function startServer(db: Db, {
       // should there be an `else`? The `else` should *never* run since that would mean there's a bookmark with no
       // comments
 
-      rerenderJustBookmark(db, toId);
+      // rerenderJustBookmark(db, toId);
       cacheAllComments(db, user.id);
       res.status(200).send();
       return;
@@ -741,38 +776,23 @@ if (require.main === module) {
   (async function main() {
     mkdirpSync(__dirname + '/.data');
     const db = dbInit(__dirname + `/.data/yamanote-v${SCHEMA_VERSION_REQUIRED}.db`);
-    ensureBookmarkCommentConsistency(db);
 
     const app = await startServer(db);
 
+    if (0) {
+      for (let i = 0; i < 5; i++) {
+        const r = Math.random().toString(36).slice(2);
+        createNewBookmark(db, "url " + r, "title " + r, "my comment " + r, 1);
+      }
+    }
+
     if (1) {
       // rerender comments
-      const all: SelectedAll<CoreBookmark&Table.commentRow> = db.prepare(`
-        select comment.*, bookmark.title, bookmark.url, bookmark.numComments
-        from bookmark
-        join comment
-        on comment.bookmarkId=bookmark.id`).all();
-      for (const x of all) { rerenderPartialComment(db, x, {...x, id: x.bookmarkId}, true); }
+      const all: SelectedAll<SmallBookmark> = db.prepare(`select ${SMALL_BOOKMARK_COLS} from bookmark`).all();
+
+      for (const x of all) { renderAllCommentsForBookmark(db, x); }
       cacheAllComments(db, 1);
       console.log('done rerendering comments', {len: all.length});
-    }
-    if (1) {
-      const all: SelectedAll<CoreBookmark> =
-          db.prepare(`select id,url,title,numComments from bookmark order by modifiedTime desc`).all()
-      for (const x of all) { rerenderJustBookmark(db, x); }
-      cacheAllComments(db, 1);
-      console.log('done rerendering bookmarks');
-    }
-    {
-      const title = 'TITLE YOU WANT TO DELETE';
-      const res: SelectedAll<Table.bookmarkRow> = db.prepare(`select * from bookmark where title=$title`).all({title});
-      if (res.length === 1) {
-        console.log(`sqlite3 .data/yamanote-v${SCHEMA_VERSION_REQUIRED}.db
-delete from bookmark where id=${res[0].id};
-delete from comment where bookmarkId=${res[0].id};
-delete from backup where bookmarkId=${res[0].id};
-`);
-      }
     }
     if (0) {
       const ids: {id: number|bigint}[] = db.prepare('select id from bookmark').all()

@@ -2,14 +2,14 @@ import assert from 'assert';
 import {encode} from 'html-entities';
 import {URL} from 'url';
 
-import * as Table from './DbTablesV4';
+import * as Table from './DbTablesV5';
 import {Db, FullRow, Selected, SelectedAll} from "./pathsInterfaces";
 import {add1} from './utils';
 
 export type CoreBookmark = Pick<FullRow<Table.bookmarkRow>, 'id'|'url'|'title'|'numComments'>;
 export type CoreComment = Pick<FullRow<Table.commentRow>, 'createdTime'|'id'|'modifiedTime'|'content'|'siblingIdx'>;
 
-export function rerenderCoreComment(db: Db, comment: CoreComment): string {
+export function rerenderInnerComment(db: Db, comment: CoreComment): string {
   const id = comment.id;
 
   let anchor = `comment-${id}`;
@@ -33,7 +33,7 @@ export function rerenderCoreComment(db: Db, comment: CoreComment): string {
   return innerRender;
 }
 
-export function rerenderPartialComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark) {
+export function rerenderFullComment(db: Db, idOrComment: CoreComment|(number | bigint), bookmark: CoreBookmark) {
   let id: number|bigint;
   let comment: CoreComment;
   if (typeof idOrComment === 'object') {
@@ -47,7 +47,7 @@ export function rerenderPartialComment(db: Db, idOrComment: CoreComment|(number 
 
   assert(bookmark.id && 'title' in bookmark && 'url' in bookmark && bookmark.numComments, 'bookmark valid');
 
-  const coreRender = rerenderCoreComment(db, comment);
+  const coreRender = rerenderInnerComment(db, comment);
 
   const codas = ['<span class="coda"> '];
   if (comment.siblingIdx < bookmark.numComments) {
