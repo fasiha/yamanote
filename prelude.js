@@ -30,6 +30,12 @@ window.addEventListener("message", async (event) => {
       event.source.postMessage(JSON.stringify(reply), origin);
       document.body.append('… asking for HTML… ');
     } else {
+      const button = document.createElement('button');
+      button.textContent = 'Close';
+      button.onclick = () => window.close();
+      document.body.append(button);
+      // It's not clear why the `window.close()` below doesn't work if you clip things in rapid succession on Safari
+      // mobile so create the above button
       document.body.append('… OK! You can close me!');
       window.close();
     }
