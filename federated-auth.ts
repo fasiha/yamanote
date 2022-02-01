@@ -84,7 +84,8 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
     cookie: process.env.NODE_ENV === 'development' ? {secure: false, sameSite: 'lax'}
                                                    : {secure: true, sameSite: 'none'},
     secret: env.SESSION_SECRET,
-    resave: true,
+    resave: false, // not needed since Knex store implements `touch`
+    maxAge: 1e3 * 3600 * 24 * 365 * 2,
     rolling: true,
     saveUninitialized: true,
     store,
