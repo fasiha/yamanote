@@ -75,8 +75,6 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
   // Take the data we stored in the session (`id`) and resurrect the full IUser object
   passport.deserializeUser(function(obj: number|string, cb) { cb(null, getUser(db, obj)); });
 
-  app.use(require('cookie-parser')());
-
   const knex = Knex({client: "sqlite3", useNullAsDefault: true, connection: {filename: sessionFilename}});
   const store = new (KnexSession(require('express-session')))({knex});
 
@@ -97,7 +95,7 @@ export function passportSetup(db: Db, app: Express, sessionFilename: string): {k
   // All done with passport shenanigans. Set up some routes.
   app.get('/auth/github', ensureUnauthenticated, passport.authenticate('github'));
   app.get('/auth/github/callback', ensureUnauthenticated, passport.authenticate('github', {failureRedirect: '/'}),
-          (req, res) => res.redirect('/'));
+          (req, res) => res.redirect('/welcomeback'));
   app.get('/logout', (req, res) => {
     req.logout();
     res.redirect('/');

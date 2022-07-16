@@ -521,6 +521,13 @@ export async function startServer(db: Db, {
     }
     res.sendFile(__dirname + '/welcome.html');
   });
+  app.get('/welcomeback', (req, res) => {
+    if (req.user) {
+      res.sendFile(__dirname + '/welcomeback.html');
+      return;
+    }
+    res.sendFile(__dirname + '/welcome.html');
+  });
   app.get('/c', (req, res) => {
     if (req.user) {
       const user = reqToUser(req);
