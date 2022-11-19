@@ -269,11 +269,13 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
         cacheAllBookmarks(db, userId);
 
         if (html) {
-          db.prepare(`insert into backup (bookmarkId, content, createdTime)
-                values ($bookmarkId, $content, $createdTime)`)
-              .run({bookmarkId: id, content: html, createdTime: Date.now()});
+          // same as below
+          const backup: Table.backupRow = {bookmarkId: id, content: html, original: html, createdTime: Date.now()};
+          db.prepare(`insert into backup (bookmarkId, content, original, createdTime)
+          values ($bookmarkId, $content, $original, $createdTime)`)
+              .run(backup);
           downloadImagesVideos(db, id);
-        }
+            }
         const reply: AskForHtmlPayload = {id, htmlWanted: askForHtml};
 
         // the below will throw later if id is bigint, which better-sqlite3 will return if >2**53 or 10**16, because

@@ -28,8 +28,8 @@ javascript: (function() {
       console.log('event received from Yamanote');
       const recv = JSON.parse(event.data);
       if (recv.id && recv.htmlWanted) {
-        bodyHtml = document.body.innerHTML;
-        headHtml = document.head.innerHTML;
+        const bodyHtml = document.body.innerHTML;
+        const headHtml = document.head.innerHTML;
         const obj = {
           _type: 'addHtml',
           id: recv.id,
