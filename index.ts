@@ -9,6 +9,7 @@ import multer from 'multer';
 import fetch from 'node-fetch';
 import assert from 'node:assert';
 import http from 'node:http';
+import https from 'node:https';
 import srcsetlib from 'srcset';
 
 import * as Table from './DbTablesV4';
@@ -275,7 +276,7 @@ function bodyToBookmark(db: Db, body: Record<string, any>,
           values ($bookmarkId, $content, $original, $createdTime)`)
               .run(backup);
           downloadImagesVideos(db, id);
-            }
+        }
         const reply: AskForHtmlPayload = {id, htmlWanted: askForHtml};
 
         // the below will throw later if id is bigint, which better-sqlite3 will return if >2**53 or 10**16, because
@@ -762,8 +763,15 @@ export async function startServer(db: Db, {
     res.json({backups, blobs});
   });
 
-  const server: ReturnType<typeof app.listen> =
-      await new Promise((resolve, reject) => {const server: http.Server = app.listen(port, () => resolve(server))});
+  const server: ReturnType<typeof app.listen> = await new Promise((resolve, reject) => {
+    const p = `${process.env.HOME}/Library/Containers/io.tailscale.ipn.macos/Data`;
+    const server: https.Server = https.createServer({
+      key: readFileSync(`${p}/kamos-imac.prairiedog-gopher.ts.net.key`),
+      cert: readFileSync(`${p}/kamos-imac.prairiedog-gopher.ts.net.crt`)
+    },
+                                                    app);
+    server.listen(port, () => resolve(server))
+  });
   console.log(`Example app listening at http://localhost:${port}`);
   return {app, server, knex};
 }
